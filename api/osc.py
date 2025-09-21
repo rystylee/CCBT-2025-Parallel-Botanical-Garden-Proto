@@ -1,0 +1,53 @@
+import asyncio
+from typing import List
+
+from loguru import logger
+from pythonosc.dispatcher import Dispatcher
+from pythonosc.osc_server import AsyncIOOSCUDPServer
+from pythonosc.udp_client import SimpleUDPClient
+
+from api.llm import StackFlowLLMClient
+from api.tts import StackFlowTTSClient
+
+
+class OscServer:
+    def __init__(
+        self,
+        config: dict,
+    ):
+        self.config = config
+        self.ip_address = config.get("network").get("ip_address")
+        self.port = config.get("osc").get("receive_port")
+
+        self.dispatcher = Dispatcher()
+        self.register_handler("/*", self._print_message)
+
+    def register_handler(self, address, func):
+        self.dispatcher.map(address, func)
+    
+    async def start_server(self):
+        server = AsyncIOOSCUDPServer(
+            (self.ip_address, self.port),
+            self.dispatcher,
+            asyncio.get_event_loop()
+        )
+        logger.info(f"Serving on ip: {self.ip_address} port: {self.port}")
+        await server.create_serve_endpoint()
+
+    def _print_message(self, address: str, *args: List[str]):
+        logger.debug(f"address: {address}, args: {args}")
+
+
+class OscClient:
+    def __init__(
+        self,
+        config: dict
+    ):
+        self.config = config
+        self.client_address = config.get("osc").get("client_address")
+        self.port = config.get("osc").get("send_port")
+
+        self.client = SimpleUDPClient(self.client_address, self.port)
+
+    def send(self, address, msg):
+        self.client.send_message(address, msg)
