@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from loguru import logger
 
 from api.llm import StackFlowLLMClient
@@ -11,27 +12,41 @@ class AppController:
         config: dict,
     ):
         logger.info("Initialize App Controller...")
+        self.config = config
         self.llm_client = StackFlowLLMClient(config)
-        self.tts_client = StackFlowTTSClient(config)
+        # self.tts_client = StackFlowTTSClient(config)
         self.osc_server = OscServer(config)
         self.osc_client = OscClient(config)
 
         self._init()
 
     def _init(self):
-        # self.osc_server.register_handler("/llm/process", func)
-        # self.osc_server.register_handler("/llm/reload", func):
-        # self.osc_server.register_handler("/tts/process", func):
-        # self.osc_server.register_handler("/tts/reload", func):
+        self.osc_server.register_handler("/process/llm", self.process_llm)
+        self.osc_server.register_handler("/process/tts", self.process_tts)
+        # self.osc_server.register_handler("/reload/llm", func):
+        # self.osc_server.register_handler("/realod/tts", func):
         self.osc_server.register_handler("/process", self.process)
 
     def process(self, *args):
-        logger.debug(args)
-        output = self.llm_client.generate_text(args[0])
-        logger.info(output)
+        logger.debug(f"process, args: {args}")
+        output = self.llm_client.generate_text(query=args[1])
+        logger.info(f"llm output: \n{output}")
         self.tts_client.speak(output)
 
         self.osc_client.send("/process", output)
+
+    def process_llm(self, *args):
+        logger.debug(f"pocess_llm, args: {args}")
+        output = self.llm_client.generate_text(query=args[1])
+        logger.info(f"llm output: \n{output}")
+
+    def process_tts(self, *args):
+        logger.debug(f"process_tts, args: {args}")
+        self.tts_client.speak(text=args[1])
+
+    def reload_llm(self, *args):
+        logger.debug(f"reload_llm, args: {args}")
+        # subprocess.run("", shell=True)
 
     async def run(self):
         logger.info("Starting App Controller")

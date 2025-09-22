@@ -3,6 +3,7 @@ from loguru import logger
 
 from stackflow.utils import create_tcp_connection, close_tcp_connection
 from stackflow.utils import send_json, receive_response, parse_setup_response, exit_session
+from api.utils import LLM_SETTINGS
 
 
 class StackFlowLLMClient:
@@ -19,11 +20,24 @@ class StackFlowLLMClient:
         close_tcp_connection(self.sock)
 
     def set_params(self, config: dict):
-        self.model = config.get("stack_flow_llm").get("model")
-        self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
-        self.system_prompt = config.get("stack_flow_llm").get("system_prompt")
+        lang = config.get("stack_flow_llm").get("lang")
 
-    def generate_text(self, prompt: str) -> str:
+        self.model = LLM_SETTINGS.get(lang).get("model")
+        self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
+        self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
+        self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
+        logger.info("[LLM info]")
+        logger.info(f"lang: {lang}")
+        logger.info(f"model: {self.model}")
+        logger.info(f"max_tokens: {self.max_tokens}")
+        logger.info(f"system_prompt: {self.system_prompt}")
+        logger.info(f"instruction_prompt: {self.instruction_prompt}")
+        logger.info("")
+
+    def generate_text(self, query: str) -> str:
+        prompt = self.instruction_prompt + query
+        logger.info(f"prompt: {prompt}")
+
         send_data = self._create_send_data(prompt)
         send_json(self.sock, send_data)
 
