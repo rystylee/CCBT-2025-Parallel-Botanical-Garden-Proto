@@ -59,6 +59,7 @@ class StackFlowTTSClient:
         response_data = json.loads(response)
         self.tts_work_id = parse_setup_response(response_data, sent_request_id)
         logger.debug(f"tts setup response: {response}")
+        logger.debug(f"tts_work_id: {self.tts_work_id}")
 
         logger.info("Setup TTS finished.")
 

@@ -6,7 +6,7 @@ LLM_SETTINGS["en"] = {
     "instruction_prompt": "Please write a short poem continuing the input text. The output must be generated within 15 tokens. Only generate the poem. input: "
 }
 LLM_SETTINGS["ja"] = {
-    "model": "",
+    "model": "TinySwallow-1.5B",
     "system_prompt": "あなたは詩人です。常に短い詩を生成します。",
     "instruction_prompt": "入力テキストの続きの短い詩を生成してください。出力は必ず15トークン以内で生成してください。余計な文章は含めず、詩のみを出力してください。input: "
 }

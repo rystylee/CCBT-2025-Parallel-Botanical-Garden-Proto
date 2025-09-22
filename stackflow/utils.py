@@ -1,6 +1,8 @@
 import socket
 import json
 
+from loguru import logger
+
 
 def create_tcp_connection(host: str, port: int):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -14,18 +16,25 @@ def close_tcp_connection(sock):
 
 
 def send_json(sock, data):
-    json_data = json.dumps(data, ensure_ascii=False) + '\n'
-    sock.sendall(json_data.encode('utf-8'))
+    try:
+        json_data = json.dumps(data, ensure_ascii=False) + '\n'
+        sock.sendall(json_data.encode('utf-8'))
+    except Exception as e:
+        logger.error(f"Error at send_json: {e}")
 
 
 def receive_response(sock):
-    response = ''
-    while True:
-        part = sock.recv(4096).decode('utf-8')
-        response += part
-        if '\n' in response:
-            break
-    return response.strip()
+    try:
+        response = ''
+        while True:
+            part = sock.recv(4096).decode('utf-8')
+            response += part
+            if '\n' in response:
+                break
+        return response.strip()
+    except Exception as e:
+        logger.error(f"Error at receive_response: {e}")
+
 
 def parse_setup_response(response_data: dict, sent_request_id: str) -> str:
     error = response_data.get('error')
