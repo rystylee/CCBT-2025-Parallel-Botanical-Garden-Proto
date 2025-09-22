@@ -3,13 +3,15 @@ from loguru import logger
 
 from stackflow.utils import create_tcp_connection, close_tcp_connection
 from stackflow.utils import send_json, receive_response, parse_setup_response, exit_session
+from api.utils import TTS_SETTINGS
 
 
 class StackFlowTTSClient:
     def __init__(self, config: dict):
-        self.model = config.get("stack_flow_tts").get("model")
-        self.sock = create_tcp_connection("localhost", 10001)
+        self.config = config
+        self.set_params(config)
 
+        self.sock = create_tcp_connection("localhost", 10001)
         self._init()
 
     def __del__(self):
@@ -20,8 +22,13 @@ class StackFlowTTSClient:
 
         close_tcp_connection(self.sock)
 
-    def set_params(self, **kwargs):
-        pass
+    def set_params(self, config: dict):
+        lang = config.get("common").get("lang")
+        self.model = TTS_SETTINGS.get(lang).get("model")
+
+        logger.info("[TTS info]")
+        logger.info(f"lang: {lang}")
+        logger.info(f"model: {self.model}")
 
     def speak(self, text: str) -> str:
         inference_date = self._create_inference_data(text)

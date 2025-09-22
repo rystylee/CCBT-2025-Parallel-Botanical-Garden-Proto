@@ -20,3 +20,17 @@ LLM_SETTINGS["fr"] = {
     "system_prompt": "Vous êtes un poète. Vous créez constamment de courts poèmes.",
     "instruction_prompt": "Génère un court poème à partir du texte saisi. La sortie doit être limitée à 15 tokens maximum. Ne génère que le poème, sans phrases supplémentaires. input: "
 }
+
+TTS_SETTINGS = {}
+TTS_SETTINGS["en"] = {
+    "model": "melotts-en-us"
+}
+TTS_SETTINGS["ja"] = {
+    "model": "melotts-ja-jp"
+}
+TTS_SETTINGS["zh"] = {
+    "model": "melotts-zh-cn"
+}
+TTS_SETTINGS["fr"] = {
+    "model": ""
+}

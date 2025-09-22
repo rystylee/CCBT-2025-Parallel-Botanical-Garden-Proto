@@ -10,13 +10,15 @@
     "client_address": "127.0.0.1"
   },
 
+  "common": {
+    "lang": "en"
+  },
+
   "stack_flow_llm": {
-    "lang": "en",
     "max_tokens": 128
   },
 
   "stack_flow_tts": {
-    "model": "melotts-en-us"
   },
 
   "system": {

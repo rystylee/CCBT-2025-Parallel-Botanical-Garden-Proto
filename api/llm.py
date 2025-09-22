@@ -20,12 +20,12 @@ class StackFlowLLMClient:
         close_tcp_connection(self.sock)
 
     def set_params(self, config: dict):
-        lang = config.get("stack_flow_llm").get("lang")
-
+        lang = config.get("common").get("lang")
         self.model = LLM_SETTINGS.get(lang).get("model")
         self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
         self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
         self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
+
         logger.info("[LLM info]")
         logger.info(f"lang: {lang}")
         logger.info(f"model: {self.model}")
