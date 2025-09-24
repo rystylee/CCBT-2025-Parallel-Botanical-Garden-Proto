@@ -7,6 +7,7 @@ apt update
 # ubuntu package
 apt install git
 apt install curl
+apt install unzip
 
 # uv (python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh

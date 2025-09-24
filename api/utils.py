@@ -32,5 +32,5 @@ TTS_SETTINGS["zh"] = {
     "model": "melotts-zh-cn"
 }
 TTS_SETTINGS["fr"] = {
-    "model": ""
+    "model": "melotts-en-us"
 }

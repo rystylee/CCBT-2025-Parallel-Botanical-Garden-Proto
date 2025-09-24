@@ -21,11 +21,11 @@ class AppController:
         self._init()
 
     def _init(self):
+        self.osc_server.register_handler("/process", self.process)
         self.osc_server.register_handler("/process/llm", self.process_llm)
         self.osc_server.register_handler("/process/tts", self.process_tts)
-        # self.osc_server.register_handler("/reload/llm", func):
-        # self.osc_server.register_handler("/realod/tts", func):
-        self.osc_server.register_handler("/process", self.process)
+        self.osc_server.register_handler("/reload/llm", self.reload_llm)
+        self.osc_server.register_handler("/reload/tts", self.reload_tts)
 
     def process(self, *args):
         logger.debug(f"process, args: {args}")
@@ -40,19 +40,25 @@ class AppController:
         output = self.llm_client.generate_text(query=args[1])
         logger.info(f"llm output: \n{output}")
 
+        self.osc_client.send("/process_llm", output)
+
     def process_tts(self, *args):
         logger.debug(f"process_tts, args: {args}")
         self.tts_client.speak(text=args[1])
 
     def reload_llm(self, *args):
+        """[TODO] Not implemented yet"""
         logger.debug(f"reload_llm, args: {args}")
+        # subprocess.run("", shell=True)
+
+    def reload_tts(self, *args):
+        """[TODO] Not implemented yet"""
+        logger.debug(f"reload_tts, args: {args}")
         # subprocess.run("", shell=True)
 
     async def run(self):
         logger.info("Starting App Controller")
-        
         await self.osc_server.start_server()
-
         try:
             while True:
                 await asyncio.sleep(1)

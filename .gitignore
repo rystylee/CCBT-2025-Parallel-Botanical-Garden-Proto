@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# model data
+TinySwallow-1.5B-Instruct/
+TinySwallow-1.5B-Instruct.zip
