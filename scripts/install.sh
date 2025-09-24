@@ -15,3 +15,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # stackflow llm models
 apt install llm-model-llama3.2-1b-prefill-ax630c
 apt install llm-model-qwen2.5-1.5b-ax630c
+
+# melo tts
+apt install llm-model-melotts-zh-cn
+apt install llm-model-melotts-en-us
+apt install llm-model-melotts-ja-jp
