@@ -40,7 +40,7 @@ class AppController:
         output = self.llm_client.generate_text(query=args[1])
         logger.info(f"llm output: \n{output}")
 
-        self.osc_client.send("/process_llm", output)
+        self.osc_client.send("/process/llm", output)
 
     def process_tts(self, *args):
         logger.debug(f"process_tts, args: {args}")
