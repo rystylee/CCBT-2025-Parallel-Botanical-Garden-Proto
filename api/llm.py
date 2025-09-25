@@ -1,5 +1,6 @@
 import json
 from loguru import logger
+from googletrans import Translator
 
 from stackflow.utils import create_tcp_connection, close_tcp_connection
 from stackflow.utils import send_json, receive_response, parse_setup_response, exit_session
@@ -14,6 +15,8 @@ class StackFlowLLMClient:
         self.sock = create_tcp_connection("localhost", 10001)
         self.llm_work_id = self._init()
 
+        self.translator = Translator()
+
     def __del__(self):
         deinit_data = self._create_deinit_data()
         exit_session(self.sock, deinit_data)
@@ -21,9 +24,11 @@ class StackFlowLLMClient:
 
     def set_params(self, config: dict):
         lang = config.get("common").get("lang")
+        self.lang = lang
         self.model = LLM_SETTINGS.get(lang).get("model")
         self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
         self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
+        self.translation_prompt = LLM_SETTINGS.get(lang).get("translation_prompt")
         self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
 
         logger.info("[LLM info]")
@@ -31,11 +36,14 @@ class StackFlowLLMClient:
         logger.info(f"model: {self.model}")
         logger.info(f"max_tokens: {self.max_tokens}")
         logger.info(f"system_prompt: {self.system_prompt}")
+        logger.info(f"translation_prompt: {self.translation_prompt}")
         logger.info(f"instruction_prompt: {self.instruction_prompt}")
         logger.info("")
 
-    def generate_text(self, query: str) -> str:
-        prompt = self.instruction_prompt + query
+    async def generate_text(self, query: str) -> str:
+        translated_query = await self._translate(query)
+        logger.info(f"translated_query: {translated_query}")
+        prompt = self.instruction_prompt +  translated_query
         logger.info(f"prompt: {prompt}")
 
         send_data = self._create_send_data(prompt)
@@ -58,6 +66,7 @@ class StackFlowLLMClient:
             if finish:
                 break
 
+        output = self._postprocess(output)
         return output
 
     def _init(self) -> str:
@@ -119,3 +128,14 @@ class StackFlowLLMClient:
                 "finish": True
             }
         }
+
+    async def _translate(self, query: str) -> str:
+        result = await self.translator.translate(query, dest=self.lang)
+        return result.text
+
+    def _postprocess(self, text: str) -> str:
+        if ":" in text:
+            idx = text.find(":")
+            return text[idx+1:]
+        else:
+            return text

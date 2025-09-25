@@ -21,23 +21,29 @@ class AppController:
         self._init()
 
     def _init(self):
-        self.osc_server.register_handler("/process", self.process)
-        self.osc_server.register_handler("/process/llm", self.process_llm)
+        self.osc_server.register_handler("/process", self.process_handler)
+        self.osc_server.register_handler("/process/llm", self.process_llm_handler)
         self.osc_server.register_handler("/process/tts", self.process_tts)
         self.osc_server.register_handler("/reload/llm", self.reload_llm)
         self.osc_server.register_handler("/reload/tts", self.reload_tts)
 
-    def process(self, *args):
+    def process_handler(self, *args):
+        asyncio.create_task(self.process(*args))
+
+    def process_llm_handler(self, *args):
+        asyncio.create_task(self.process_llm(*args))
+
+    async def process(self, *args):
         logger.debug(f"process, args: {args}")
-        output = self.llm_client.generate_text(query=args[1])
+        output = await self.llm_client.generate_text(query=args[1])
         logger.info(f"llm output: \n{output}")
         self.tts_client.speak(output)
 
         self.osc_client.send("/process", output)
 
-    def process_llm(self, *args):
+    async def process_llm(self, *args):
         logger.debug(f"pocess_llm, args: {args}")
-        output = self.llm_client.generate_text(query=args[1])
+        output = await self.llm_client.generate_text(query=args[1])
         logger.info(f"llm output: \n{output}")
 
         self.osc_client.send("/process/llm", output)

@@ -22,6 +22,9 @@ class OscServer:
         self.dispatcher = Dispatcher()
         self.register_handler("/*", self._print_message)
 
+    def __del__(self):
+        self.transport.close()
+
     def register_handler(self, address, func):
         self.dispatcher.map(address, func)
     
@@ -32,7 +35,7 @@ class OscServer:
             asyncio.get_event_loop()
         )
         logger.info(f"Serving on ip: {self.ip_address} port: {self.port}")
-        await server.create_serve_endpoint()
+        self.transport, protocol = await server.create_serve_endpoint()
 
     def _print_message(self, address: str, *args: List[str]):
         logger.debug(f"address: {address}, args: {args}")
