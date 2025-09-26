@@ -47,10 +47,13 @@ class OscClient:
         config: dict
     ):
         self.config = config
-        self.client_address = config.get("osc").get("client_address")
+        self.client_address: List[str] = config.get("osc").get("client_address")
         self.port = config.get("osc").get("send_port")
 
-        self.client = SimpleUDPClient(self.client_address, self.port)
+        self.clients = []
+        for address in self.client_address:
+            self.clients.append(SimpleUDPClient(address, self.port))
 
     def send(self, address, msg):
-        self.client.send_message(address, msg)
+        for client in self.clients:
+            client.send_message(address, msg)

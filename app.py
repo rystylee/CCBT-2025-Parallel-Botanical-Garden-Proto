@@ -13,8 +13,9 @@ class AppController:
     ):
         logger.info("Initialize App Controller...")
         self.config = config
+        logger.info(f"config: \n{config}")
         self.llm_client = StackFlowLLMClient(config)
-        self.tts_client = StackFlowTTSClient(config)
+        # self.tts_client = StackFlowTTSClient(config)
         self.osc_server = OscServer(config)
         self.osc_client = OscClient(config)
 

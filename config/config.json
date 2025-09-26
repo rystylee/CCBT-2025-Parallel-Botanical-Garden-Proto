@@ -7,7 +7,9 @@
   "osc": {
     "receive_port": 8000,
     "send_port": 8000,
-    "client_address": "192.168.151.12"
+    "client_address": [
+      "192.168.151.12"
+    ]
   },
 
   "common": {
