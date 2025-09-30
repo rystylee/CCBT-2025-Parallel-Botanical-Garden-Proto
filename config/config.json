@@ -1,7 +1,7 @@
 {
   "network": {
     "device_name": "M5Stack-LLM-01",
-    "ip_address": "192.168.151.8"
+    "ip_address": "192.168.1.21"
   },
 
   "osc": {
