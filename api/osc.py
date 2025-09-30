@@ -57,3 +57,4 @@ class OscClient:
     def send(self, address, msg):
         for client in self.clients:
             client.send_message(address, msg)
+        logger.info(f"sent the message. address: {address} msg: {msg}")
