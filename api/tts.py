@@ -33,13 +33,13 @@ class StackFlowTTSClient:
     def speak(self, text: str) -> str:
         inference_date = self._create_inference_data(text)
         send_json(self.sock, inference_date)
-        response = receive_response(self.sock)
+        response = receive_response(self.sock, timeout=10.0)
         logger.debug(f"tts response: {response}")
 
-        reset_date = self._create_reset_data()
-        send_json(self.sock, reset_date)
-        response = receive_response(self.sock)
-        logger.debug(f"reset response: {response}")
+        # reset_date = self._create_reset_data()
+        # send_json(self.sock, reset_date)
+        # response = receive_response(self.sock)
+        # logger.debug(f"reset response: {response}")
 
     def _init(self):
         logger.info("Setup TTS...")

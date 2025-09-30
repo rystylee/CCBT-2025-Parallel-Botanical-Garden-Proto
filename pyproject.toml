@@ -7,5 +7,6 @@ requires-python = ">=3.10"
 dependencies = [
     "googletrans>=4.0.2",
     "loguru>=0.7.3",
+    "openai>=1.109.1",
     "python-osc>=1.9.3",
 ]

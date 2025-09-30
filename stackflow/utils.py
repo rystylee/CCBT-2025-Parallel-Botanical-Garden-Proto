@@ -23,8 +23,11 @@ def send_json(sock, data):
         logger.error(f"Error at send_json: {e}")
 
 
-def receive_response(sock):
+def receive_response(sock, timeout=None):
     try:
+        if timeout:
+            sock.settimeout(timeout)
+
         response = ''
         while True:
             part = sock.recv(4096).decode('utf-8')
@@ -34,6 +37,7 @@ def receive_response(sock):
         return response.strip()
     except Exception as e:
         logger.error(f"Error at receive_response: {e}")
+        return None
 
 
 def parse_setup_response(response_data: dict, sent_request_id: str) -> str:
@@ -41,11 +45,11 @@ def parse_setup_response(response_data: dict, sent_request_id: str) -> str:
     request_id = response_data.get('request_id')
 
     if request_id != sent_request_id:
-        print(f"Request ID mismatch: sent {sent_request_id}, received {request_id}")
+        logger.error(f"Request ID mismatch: sent {sent_request_id}, received {request_id}")
         return None
 
     if error and error.get('code') != 0:
-        print(f"Error Code: {error['code']}, Message: {error['message']}")
+        logger.error(f"Error Code: {error['code']}, Message: {error['message']}")
         return None
 
     return response_data.get('work_id')
@@ -63,4 +67,4 @@ def exit_session(sock, deinit_data):
     send_json(sock, deinit_data)
     response = receive_response(sock)
     response_data = json.loads(response)
-    print("Exit Response:", response_data)
+    logger.info("Exit Response:", response_data)
