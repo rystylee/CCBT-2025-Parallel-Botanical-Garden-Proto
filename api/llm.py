@@ -130,8 +130,12 @@ class StackFlowLLMClient:
         }
 
     async def _translate(self, query: str) -> str:
-        result = await self.translator.translate(query, dest=self.lang)
-        return result.text
+        try:
+            result = await self.translator.translate(query, dest=self.lang)
+            return result.text
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            return query
 
     def _postprocess(self, text: str) -> str:
         if ":" in text:
