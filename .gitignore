@@ -131,3 +131,6 @@ dmypy.json
 # model data
 TinySwallow-1.5B-Instruct/
 TinySwallow-1.5B-Instruct.zip
+
+# backup
+config/config.json.bak.*

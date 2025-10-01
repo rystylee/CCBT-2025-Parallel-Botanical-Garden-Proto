@@ -103,6 +103,7 @@ M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロト
 ```
 apt install git
 apt install curl
+apt install jq
 ```
 
 ### 7.2 Pythonパッケージ (requirements.txt)
