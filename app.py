@@ -38,15 +38,14 @@ class AppController:
         logger.debug(f"process, args: {args}")
         output = await self.llm_client.generate_text(query=args[1])
         logger.info(f"llm output: \n{output}")
-        self.tts_client.speak(output)
-
         self.osc_client.send("/process", output)
+
+        self.tts_client.speak(output)
 
     async def process_llm(self, *args):
         logger.debug(f"pocess_llm, args: {args}")
         output = await self.llm_client.generate_text(query=args[1])
         logger.info(f"llm output: \n{output}")
-
         self.osc_client.send("/process/llm", output)
 
     def process_tts(self, *args):

@@ -1,17 +1,17 @@
 {
   "network": {
     "device_name": "M5Stack-LLM-01",
-    "ip_address": "192.168.1.32"
+    "ip_address": "192.168.151.50"
   },
   "osc": {
     "receive_port": 8000,
     "send_port": 8000,
     "client_address": [
-      "192.168.151.99"
+      "192.168.151.51"
     ]
   },
   "common": {
-    "lang": "ja"
+    "lang": "zh"
   },
   "stack_flow_llm": {
     "max_tokens": 128
