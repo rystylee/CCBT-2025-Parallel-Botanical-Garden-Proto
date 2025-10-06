@@ -27,12 +27,16 @@ class AppController:
         self.osc_server.register_handler("/process/tts", self.process_tts)
         self.osc_server.register_handler("/reload/llm", self.reload_llm)
         self.osc_server.register_handler("/reload/tts", self.reload_tts)
+        self.osc_server.register_handler("/ae/detect", self.ae_detect_handler)
 
     def process_handler(self, *args):
         asyncio.create_task(self.process(*args))
 
     def process_llm_handler(self, *args):
         asyncio.create_task(self.process_llm(*args))
+
+    def ae_detect_handler(self, *args):
+        asyncio.create_task(self.ae_detect(*args))
 
     async def process(self, *args):
         logger.debug(f"process, args: {args}")
@@ -62,6 +66,14 @@ class AppController:
         logger.debug(f"reload_tts, args: {args}")
         # subprocess.run("", shell=True)
 
+    async def ae_detect(self, *args):
+        logger.debug(f"ae_detect, args: {args}")
+        output = await self.llm_client.generate_text(query=self.=get_random_input())
+        logger.info(f"llm output: \n{output}")
+        self.osc_client.send("/process", output)
+
+        self.tts_client.speak(output)
+
     async def run(self):
         logger.info("Starting App Controller")
         await self.osc_server.start_server()
@@ -72,3 +84,11 @@ class AppController:
             logger.info("Shutting down...")
         except Exception as e:
             logger.error(f"Error: {e}")
+
+    def _get_random_input(self) -> str:
+        return random.choice([
+            "生命の本質とは",
+            "この世界は",
+            "宇宙の深淵を覗く",
+            "季節の変わり目"
+        ]) 
