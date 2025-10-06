@@ -68,7 +68,7 @@ class AppController:
 
     async def ae_detect(self, *args):
         logger.debug(f"ae_detect, args: {args}")
-        output = await self.llm_client.generate_text(query=self.=get_random_input())
+        output = await self.llm_client.generate_text(query=self._get_random_input())
         logger.info(f"llm output: \n{output}")
         self.osc_client.send("/process", output)
 
@@ -86,6 +86,7 @@ class AppController:
             logger.error(f"Error: {e}")
 
     def _get_random_input(self) -> str:
+        import random
         return random.choice([
             "生命の本質とは",
             "この世界は",
