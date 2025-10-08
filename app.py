@@ -88,8 +88,14 @@ class AppController:
     def _get_random_input(self) -> str:
         import random
         return random.choice([
-            "生命の本質とは",
-            "この世界は",
-            "宇宙の深淵を覗く",
-            "季節の変わり目"
+            "Beneath the silent sky",
+            "When shadows learn to sing",
+            "A single flame remembers",
+            "In the hush of dawn",
+            "Where rivers dream of light",
+            "The wind carries forgotten names",
+            "Between two heartbeats",
+            "A door opens in the dark",
+            "Stars whisper to the earth",
+            "And still, the silence blooms",
         ]) 
