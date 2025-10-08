@@ -26,6 +26,5 @@ if __name__ == "__main__":
     parser.add_argument("--address", default="/process")
     parser.add_argument("--message", default="")
     args = parser.parse_args()
-    
-    message = args.message if args.message else get_random_input()
-    send_message(args.ip, args.port, args.address, message)
+
+    send_message(args.ip, args.port, args.address, args.message)
