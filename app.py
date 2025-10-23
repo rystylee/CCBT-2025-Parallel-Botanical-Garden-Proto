@@ -44,7 +44,7 @@ class AppController:
         lang = args[2]
         output = await self.llm_client.generate_text(query=query, lang=lang)
         logger.info(f"llm output: \n{output}")
-        self.osc_client.send("/process", output)
+        self.osc_client.send("/process", output, self.llm_client.lang)
 
         self.tts_client.speak(output)
 
@@ -54,7 +54,7 @@ class AppController:
         lang = args[2]
         output = await self.llm_client.generate_text(query=query, lang=lang)
         logger.info(f"llm output: \n{output}")
-        self.osc_client.send("/process/llm", output)
+        self.osc_client.send("/process/llm", output, self.llm_client.lang)
 
     def process_tts(self, *args):
         logger.debug(f"process_tts, args: {args}")
