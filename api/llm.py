@@ -1,6 +1,8 @@
 import json
 from loguru import logger
 from googletrans import Translator
+import argostranslate.package
+import argostranslate.translate
 
 from stackflow.utils import create_tcp_connection, close_tcp_connection
 from stackflow.utils import send_json, receive_response, parse_setup_response, exit_session
@@ -40,8 +42,9 @@ class StackFlowLLMClient:
         logger.info(f"instruction_prompt: {self.instruction_prompt}")
         logger.info("")
 
-    async def generate_text(self, query: str) -> str:
-        translated_query = await self._translate(query)
+    async def generate_text(self, query: str, lang: str) -> str:
+        logger.info(f"query: {query}")
+        translated_query = await self._translate(query, lang)
         logger.info(f"translated_query: {translated_query}")
         prompt = self.instruction_prompt +  translated_query
         logger.info(f"prompt: {prompt}")
@@ -129,10 +132,12 @@ class StackFlowLLMClient:
             }
         }
 
-    async def _translate(self, query: str) -> str:
+    async def _translate(self, query: str, lang: str) -> str:
         try:
-            result = await self.translator.translate(query, dest=self.lang)
-            return result.text
+            # result = await self.translator.translate(query, dest=self.lang)
+            # return result.text
+            result = argostranslate.translate.translate(query, from_code=lang, to_code=self.lang)
+            return result
         except Exception as e:
             logger.error(f"Error: {e}")
             return query

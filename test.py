@@ -5,14 +5,6 @@ from loguru import logger
 from pythonosc import udp_client
 
 
-def get_random_input():
-    return random.choice([
-        "生命",
-        "この世界は",
-        "宇宙"
-    ]) 
-
-
 def send_message(ip, port, address, message):
     client = udp_client.SimpleUDPClient(ip, port)
     client.send_message(address, message)

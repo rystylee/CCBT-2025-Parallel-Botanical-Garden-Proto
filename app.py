@@ -40,7 +40,9 @@ class AppController:
 
     async def process(self, *args):
         logger.debug(f"process, args: {args}")
-        output = await self.llm_client.generate_text(query=args[1])
+        query = args[1]
+        lang = args[2]
+        output = await self.llm_client.generate_text(query=query, lang=lang)
         logger.info(f"llm output: \n{output}")
         self.osc_client.send("/process", output)
 
@@ -48,7 +50,9 @@ class AppController:
 
     async def process_llm(self, *args):
         logger.debug(f"pocess_llm, args: {args}")
-        output = await self.llm_client.generate_text(query=args[1])
+        query = args[1]
+        lang = args[2]
+        output = await self.llm_client.generate_text(query=query, lang=lang)
         logger.info(f"llm output: \n{output}")
         self.osc_client.send("/process/llm", output)
 
@@ -68,9 +72,9 @@ class AppController:
 
     async def ae_detect(self, *args):
         logger.debug(f"ae_detect, args: {args}")
-        output = await self.llm_client.generate_text(query=self._get_random_input())
+        output = await self.llm_client.generate_text(query=self._get_random_input(), lang="en")
         logger.info(f"llm output: \n{output}")
-        self.osc_client.send("/process", output)
+        self.osc_client.send("/process", output, self.llm_client.lang)
 
         self.tts_client.speak(output)
 

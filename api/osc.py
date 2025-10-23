@@ -5,6 +5,7 @@ from loguru import logger
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import AsyncIOOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
+from pythonosc import osc_message_builder
 
 from api.llm import StackFlowLLMClient
 from api.tts import StackFlowTTSClient
@@ -54,7 +55,11 @@ class OscClient:
         for address in self.client_address:
             self.clients.append(SimpleUDPClient(address, self.port))
 
-    def send(self, address, msg):
+    def send(self, address, *messages):
         for client in self.clients:
-            client.send_message(address, msg)
+            msg = osc_message_builder.OscMessageBuilder(address=address)
+            for message in messages:
+                msg.add_arg(message)
+            msg = msg.build()
+            client.send(msg)
         logger.info(f"sent the message. address: {address} msg: {msg}")
