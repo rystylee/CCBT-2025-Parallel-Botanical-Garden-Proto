@@ -104,7 +104,7 @@ class AppController:
     async def ae_detect(self, *args):
         logger.debug(f"ae_detect, args: {args}")
         query = self._get_random_input()
-        lang = "en"
+        lang = "ja"
         sp_b64 = make_random_soft_prefix_b64()
         output = await self.llm_client.generate_text(query=query, lang=lang, soft_prefix_b64=sp_b64, soft_prefix_len=P)
         logger.info(f"llm output: \n{output}")
@@ -125,14 +125,24 @@ class AppController:
 
     def _get_random_input(self) -> str:
         return random.choice([
-            "Beneath the silent sky",
-            "When shadows learn to sing",
-            "A single flame remembers",
-            "In the hush of dawn",
-            "Where rivers dream of light",
-            "The wind carries forgotten names",
-            "Between two heartbeats",
-            "A door opens in the dark",
-            "Stars whisper to the earth",
-            "And still, the silence blooms",
+            # "Beneath the silent sky",
+            # "When shadows learn to sing",
+            # "A single flame remembers",
+            # "In the hush of dawn",
+            # "Where rivers dream of light",
+            # "The wind carries forgotten names",
+            # "Between two heartbeats",
+            # "A door opens in the dark",
+            # "Stars whisper to the earth",
+            # "And still, the silence blooms",
+            "静かな空の下で",
+            "影が歌うとき",
+            "一つの炎が思い出す",
+            "夜明けの静けさの中で",
+            "川が光を夢見る場所で",
+            "風が忘れられた名前を運ぶ",
+            "二つの鼓動の間で",
+            "暗闇の中で扉が開く",
+            "星が地球にささやく",
+            "そして、静寂が花開く",
         ]) 
