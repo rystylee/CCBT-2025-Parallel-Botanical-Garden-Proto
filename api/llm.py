@@ -42,14 +42,16 @@ class StackFlowLLMClient:
         logger.info(f"instruction_prompt: {self.instruction_prompt}")
         logger.info("")
 
-    async def generate_text(self, query: str, lang: str) -> str:
+    async def generate_text(self, query: str, lang: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0) -> str:
         logger.info(f"query: {query}")
         translated_query = await self._translate(query, lang)
         logger.info(f"translated_query: {translated_query}")
         prompt = self.instruction_prompt +  translated_query
         logger.info(f"prompt: {prompt}")
+        if soft_prefix_b64 is not None:
+            logger.info(f"soft_prefix_b64: {soft_prefix_b64[:30]}... len: {soft_prefix_len}")
 
-        send_data = self._create_send_data(prompt)
+        send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
         send_json(self.sock, send_data)
 
         output  = ""
@@ -119,17 +121,21 @@ class StackFlowLLMClient:
             "action": "exit"
         }
     
-    def _create_send_data(self, prompt: str) -> dict:
+    def _create_send_data(self, prompt: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0) -> dict:
+        data_obj = {
+            "delta": prompt,
+            "index": 0,
+            "finish": True
+        }
+        if soft_prefix_b64 is not None:
+            data_obj["soft_prefix"] = {"len": int(soft_prefix_len), "data_b64": soft_prefix_b64}
+
         return {
             "request_id": "llm_001",
             "work_id": self.llm_work_id,
             "action": "inference",
             "object": "llm.utf-8.stream",
-            "data": {
-                "delta": prompt,
-                "index": 0,
-                "finish": True
-            }
+            "data": data_obj
         }
 
     async def _translate(self, query: str, lang: str) -> str:

@@ -1,7 +1,7 @@
-
 LLM_SETTINGS = {}
 LLM_SETTINGS["en"] = {
-    "model": "llama3.2-1B-prefill-ax630c",
+    # "model": "llama3.2-1B-prefill-ax630c",
+    "model": "qwen2.5-0.5B-prefill-20e",
     "system_prompt": "You are a poet. You always generate short poems in English.",
     "translation_prompt": "Please translate the input text into English. Output only the translated results. input: ",
     "instruction_prompt": "Please generate a short poem in English based on the input text. The output must be generated within 15 tokens. Only generate the poem. input: "
