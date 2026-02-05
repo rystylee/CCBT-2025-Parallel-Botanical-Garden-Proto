@@ -8,6 +8,7 @@ apt update
 apt install git -y
 apt install curl -y
 apt install unzip -y
+apt install tmux -y
 
 # uv (python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
