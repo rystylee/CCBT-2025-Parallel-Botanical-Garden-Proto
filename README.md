@@ -97,6 +97,54 @@ M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロト
 }
 ```
 
+## 3. 起動方法
+
+### 3.1 アプリケーションの起動
+
+```bash
+# adb shell経由でM5Stackに接続
+adb shell
+cd /root/CCBT-2025-Parallel-Botanical-Garden-Proto
+
+# Pythonアプリケーションを起動
+uv run python main.py
+```
+
+起動すると、OSCサーバーが指定されたポート（デフォルト: 8000）でメッセージを待ち受けます。
+
+### 3.2 テストクライアントの使用（test.py）
+
+開発用のOSCテストクライアント `test.py` を使用して、アプリケーションの動作確認ができます。
+
+#### 基本的な使い方
+
+```bash
+# ローカルPCから実行（M5StackのIPアドレスを指定）
+uv run python test.py --ip <M5StackのIPアドレス> --port 8000 --message "こんにちは"
+```
+
+#### オプション
+
+| オプション | デフォルト値 | 説明 |
+|-----------|-------------|------|
+| `--ip` | 127.0.0.1 | M5StackのIPアドレス |
+| `--port` | 8000 | OSC受信ポート |
+| `--address` | /process | OSCアドレス |
+| `--message` | "" | 送信するメッセージ |
+
+#### 使用例
+
+```bash
+# LLM生成 + TTS音声出力
+uv run python test.py --ip 192.168.1.100 --message "今日の天気について教えて"
+
+# LLM生成のみ（音声出力なし）
+uv run python test.py --ip 192.168.1.100 --address /process/llm --message "短い詩を書いて"
+
+# TTS音声出力のみ
+uv run python test.py --ip 192.168.1.100 --address /process/tts --message "これはテストです"
+```
+
 ## 7. 依存関係
 
 ### 7.1 Ubuntuパッケージ
