@@ -141,5 +141,10 @@ CLAUDE.md
 TinySwallow-1.5B-Instruct/
 TinySwallow-1.5B-Instruct.zip
 
+# debian packages
+lib-llm_1.7-m5stack1_arm64.deb
+llm-llm_1.8-m5stack1_arm64.deb
+llm-melotts_1.7-m5stack1_arm64.deb
+
 # backup
 config/config.json.bak.*
