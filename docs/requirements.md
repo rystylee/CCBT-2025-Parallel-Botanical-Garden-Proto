@@ -126,14 +126,10 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システムを構
 
 | OSCアドレス | 引数 | 機能 | 実装状態 |
 |------------|------|------|---------|
-| `/bi/input` | timestamp, text, source_type, lang | BI入力データ受付 | 🔄 新規実装予定 |
-| `/bi/output` | timestamp, text, lang | BI出力データ送信 | 🔄 新規実装予定 |
-| `/bi/start` | なし | BIサイクル開始 | 🔄 新規実装予定 |
-| `/bi/stop` | なし | BIサイクル停止 | 🔄 新規実装予定 |
-| `/bi/status` | なし | BIステータス取得 | 🔄 新規実装予定 |
-| `/process` | テキスト, 言語 | LLM生成 + TTS音声出力（レガシー） | ✅ 実装済み |
-| `/process/llm` | テキスト, 言語 | LLM生成のみ（レガシー） | ✅ 実装済み |
-| `/process/tts` | テキスト, 言語 | TTS音声出力のみ（レガシー） | ✅ 実装済み |
+| `/bi/input` | timestamp, text, source_type, lang | BI入力データ受付（人間・BI両方） | ✅ 実装済み |
+| `/bi/start` | なし | BIサイクル開始 | ✅ 実装済み |
+| `/bi/stop` | なし | BIサイクル停止 | ✅ 実装済み |
+| `/bi/status` | なし | BIステータス取得 | ✅ 実装済み |
 
 #### 2.3.3 OSCクライアント（送信）
 - 設定ファイルで指定された送信先デバイスへのメッセージ送信
@@ -318,29 +314,26 @@ Example:
   /bi/status
 ```
 
-#### 5.1.5 レガシーエンドポイント（後方互換性）
-以下のエンドポイントは既存システムとの互換性のため維持されます：
-
-- `/process` - LLM生成 + TTS音声出力
-- `/process/llm` - LLM生成のみ
-- `/process/tts` - TTS音声出力のみ
 
 ### 5.2 OSC出力インターフェース
 
-#### 5.2.1 BI出力メッセージ
+#### 5.2.1 BI出力メッセージ（他のBIへの循環送信）
 ```python
-OSC Address: /bi/output
+OSC Address: /bi/input
 Arguments:
   - [0]: タイムスタンプ (float) - UNIX時間（秒）
   - [1]: 生成テキスト (str) - LLMが生成した2~3トークン
-  - [2]: 言語コード (str)
+  - [2]: ソースタイプ (str) - "BI"（他のBIからの出力であることを示す）
+  - [3]: 言語コード (str)
 
 Example:
-  /bi/output 1707234571.789 "世界よ" "ja"
+  /bi/input 1707234571.789 "世界よ" "BI" "ja"
 
 Note:
   - 送信先は config.json の targets に設定されたデバイス
   - タイムスタンプは送信時の現在時刻
+  - source_type は常に "BI"（他のBIデバイスからの出力として送信）
+  - 受信側の2nd_BIデバイスは source_type="BI" のメッセージのみを受け付ける
 ```
 
 ### 5.3 StackFlow LLM APIインターフェース

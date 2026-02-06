@@ -1,8 +1,10 @@
 import asyncio
-import subprocess
 import base64
 import struct
 import random
+import time
+from dataclasses import dataclass
+from typing import List
 from loguru import logger
 
 from api.llm import StackFlowLLMClient
@@ -13,6 +15,15 @@ from api.osc import OscServer, OscClient
 P = 1    # num _prefix_token
 H = 896  # tokens_embed_size
 VALS = [0.0, 1e-4, 1e-3, 1e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1.0, 2.0]
+
+
+@dataclass
+class BIInputData:
+    """Data structure for BI input with timestamp"""
+    timestamp: float
+    text: str
+    source_type: str  # "human" or "BI"
+    lang: str
 
 
 def f32_to_bf16_u16(x: float) -> int:
@@ -36,84 +47,16 @@ def make_random_soft_prefix_b64() -> str:
 
 
 class AppController:
-    def __init__(
-        self,
-        config: dict,
-    ):
+    """Minimal controller for OSC server management"""
+
+    def __init__(self, config: dict):
         logger.info("Initialize App Controller...")
         self.config = config
-        logger.info(f"config: \n{config}")
-        self.llm_client = StackFlowLLMClient(config)
-        self.tts_client = StackFlowTTSClient(config)
         self.osc_server = OscServer(config)
-        self.osc_client = OscClient(config)
-
-        self._init()
-
-    def _init(self):
-        self.osc_server.register_handler("/process", self.process_handler)
-        self.osc_server.register_handler("/process/llm", self.process_llm_handler)
-        self.osc_server.register_handler("/process/tts", self.process_tts)
-        self.osc_server.register_handler("/reload/llm", self.reload_llm)
-        self.osc_server.register_handler("/reload/tts", self.reload_tts)
-        self.osc_server.register_handler("/ae/detect", self.ae_detect_handler)
-
-    def process_handler(self, *args):
-        asyncio.create_task(self.process(*args))
-
-    def process_llm_handler(self, *args):
-        asyncio.create_task(self.process_llm(*args))
-
-    def ae_detect_handler(self, *args):
-        asyncio.create_task(self.ae_detect(*args))
-
-    async def process(self, *args):
-        logger.debug(f"process, args: {args}")
-        query = args[1]
-        lang = args[2]
-        sp_b64 = make_random_soft_prefix_b64()
-        output = await self.llm_client.generate_text(query=query, lang=lang, soft_prefix_b64=sp_b64, soft_prefix_len=P)
-        logger.info(f"llm output: \n{output}")
-        self.osc_client.send("/process", output, self.llm_client.lang)
-
-        self.tts_client.speak(output)
-
-    async def process_llm(self, *args):
-        logger.debug(f"pocess_llm, args: {args}")
-        query = args[1]
-        lang = args[2]
-        sp_b64 = make_random_soft_prefix_b64()
-        output = await self.llm_client.generate_text(query=query, lang=lang, soft_prefix_b64=sp_b64, soft_prefix_len=P)
-        logger.info(f"llm output: \n{output}")
-        self.osc_client.send("/process/llm", output, self.llm_client.lang)
-
-    def process_tts(self, *args):
-        logger.debug(f"process_tts, args: {args}")
-        self.tts_client.speak(text=args[1])
-
-    def reload_llm(self, *args):
-        """[TODO] Not implemented yet"""
-        logger.debug(f"reload_llm, args: {args}")
-        # subprocess.run("", shell=True)
-
-    def reload_tts(self, *args):
-        """[TODO] Not implemented yet"""
-        logger.debug(f"reload_tts, args: {args}")
-        # subprocess.run("", shell=True)
-
-    async def ae_detect(self, *args):
-        logger.debug(f"ae_detect, args: {args}")
-        query = self._get_random_input()
-        lang = "ja"
-        sp_b64 = make_random_soft_prefix_b64()
-        output = await self.llm_client.generate_text(query=query, lang=lang, soft_prefix_b64=sp_b64, soft_prefix_len=P)
-        logger.info(f"llm output: \n{output}")
-        self.osc_client.send("/process", output, self.llm_client.lang)
-
-        self.tts_client.speak(output)
 
     async def run(self):
-        logger.info("Starting App Controller")
+        """Start OSC server and run event loop"""
+        logger.info("Starting OSC server")
         await self.osc_server.start_server()
         try:
             while True:
@@ -123,26 +66,187 @@ class AppController:
         except Exception as e:
             logger.error(f"Error: {e}")
 
-    def _get_random_input(self) -> str:
-        return random.choice([
-            # "Beneath the silent sky",
-            # "When shadows learn to sing",
-            # "A single flame remembers",
-            # "In the hush of dawn",
-            # "Where rivers dream of light",
-            # "The wind carries forgotten names",
-            # "Between two heartbeats",
-            # "A door opens in the dark",
-            # "Stars whisper to the earth",
-            # "And still, the silence blooms",
-            "静かな空の下で",
-            "影が歌うとき",
-            "一つの炎が思い出す",
-            "夜明けの静けさの中で",
-            "川が光を夢見る場所で",
-            "風が忘れられた名前を運ぶ",
-            "二つの鼓動の間で",
-            "暗闇の中で扉が開く",
-            "星が地球にささやく",
-            "そして、静寂が花開く",
-        ]) 
+
+class BIController:
+    """Controller for Botanical Intelligence cycle system"""
+
+    def __init__(self, config: dict):
+        logger.info("Initialize BI Controller...")
+        self.config = config
+        self.state = "STOPPED"
+        self.input_buffer: List[BIInputData] = []
+        self.device_type = config.get("device", {}).get("type", "1st_BI")
+        self.generated_text = ""
+        self.tts_text = ""
+
+        # Initialize clients
+        self.llm_client = StackFlowLLMClient(config)
+        self.tts_client = StackFlowTTSClient(config)
+        self.osc_client = OscClient(config)
+
+        logger.info(f"BI Controller initialized as {self.device_type}")
+
+    async def start_cycle(self):
+        """Start the BI cycle loop"""
+        logger.info("Starting BI cycle")
+        self.state = "RECEIVING"
+
+        while self.state != "STOPPED":
+            try:
+                if self.state == "RECEIVING":
+                    await self._receiving_phase()
+                elif self.state == "GENERATING":
+                    await self._generating_phase()
+                elif self.state == "OUTPUT":
+                    await self._output_phase()
+                elif self.state == "RESTING":
+                    await self._resting_phase()
+            except Exception as e:
+                logger.error(f"Error in BI cycle: {e}")
+                await asyncio.sleep(1)
+
+        logger.info("BI cycle stopped")
+
+    def stop_cycle(self):
+        """Stop the BI cycle"""
+        logger.info("Stopping BI cycle")
+        self.state = "STOPPED"
+
+    async def _receiving_phase(self):
+        """Phase 1: Receive input data for specified duration"""
+        logger.info("RECEIVING phase started")
+        receive_duration = self.config.get("cycle", {}).get(
+            "receive_duration", 3.0
+        )
+        await asyncio.sleep(receive_duration)
+
+        # Filter old data
+        self._filter_old_data()
+        logger.info(f"Buffer size after filtering: {len(self.input_buffer)}")
+
+        self.state = "GENERATING"
+
+    async def _generating_phase(self):
+        """Phase 2: Generate text using LLM"""
+        logger.info("GENERATING phase started")
+
+        if not self.input_buffer:
+            logger.warning("No input data, skipping generation")
+            self.state = "RESTING"
+            return
+
+        # Concatenate inputs in chronological order
+        concatenated_text = self._concatenate_inputs()
+        logger.info(f"Concatenated text: {concatenated_text}")
+
+        # Generate 2-3 tokens with LLM
+        try:
+            sp_b64 = make_random_soft_prefix_b64()
+            generated_text = await self.llm_client.generate_text(
+                query=concatenated_text,
+                lang=self.config.get("common", {}).get("lang", "ja"),
+                soft_prefix_b64=sp_b64,
+                soft_prefix_len=P
+            )
+            self.generated_text = generated_text
+            self.tts_text = concatenated_text + generated_text
+            logger.info(f"Generated text: {generated_text}")
+            self.state = "OUTPUT"
+        except Exception as e:
+            logger.error(f"Error in generation: {e}")
+            self.state = "RESTING"
+
+    async def _output_phase(self):
+        """Phase 3: Send output and play TTS"""
+        logger.info("OUTPUT phase started")
+
+        # Send generated text to target devices
+        targets = self.config.get("targets", [])
+        timestamp = time.time()
+        lang = self.config.get("common", {}).get("lang", "ja")
+
+        for target in targets:
+            try:
+                self.osc_client.send_to_target(
+                    target,
+                    "/bi/input",
+                    timestamp,
+                    self.generated_text,
+                    "BI",  # source_type
+                    lang
+                )
+                logger.info(f"Sent to {target['host']}:{target['port']}")
+            except Exception as e:
+                logger.error(f"Error sending to target: {e}")
+
+        # Play TTS (all inputs + generated)
+        try:
+            self.tts_client.speak(self.tts_text)
+        except Exception as e:
+            logger.error(f"Error in TTS: {e}")
+
+        # Clear buffer
+        self.input_buffer.clear()
+        self.state = "RESTING"
+
+    async def _resting_phase(self):
+        """Phase 4: Rest period"""
+        logger.info("RESTING phase started")
+        rest_duration = self.config.get("cycle", {}).get(
+            "rest_duration", 1.0
+        )
+        await asyncio.sleep(rest_duration)
+        self.state = "RECEIVING"
+
+    def _filter_old_data(self):
+        """Filter out old data based on timestamp"""
+        current_time = time.time()
+        max_age = self.config.get("cycle", {}).get("max_data_age", 60.0)
+
+        # Filter by age
+        self.input_buffer = [
+            data for data in self.input_buffer
+            if (current_time - data.timestamp) < max_age
+        ]
+
+        # Filter by device type (2nd_BI ignores human input)
+        if self.device_type == "2nd_BI":
+            self.input_buffer = [
+                data for data in self.input_buffer
+                if data.source_type == "BI"
+            ]
+            logger.debug("Filtered human inputs (2nd_BI mode)")
+
+    def _concatenate_inputs(self) -> str:
+        """Concatenate input texts in chronological order"""
+        sorted_data = sorted(self.input_buffer, key=lambda x: x.timestamp)
+        return "".join([data.text for data in sorted_data])
+
+    def add_input(
+        self,
+        timestamp: float,
+        text: str,
+        source_type: str,
+        lang: str
+    ):
+        """Add input data to buffer"""
+        data = BIInputData(
+            timestamp=timestamp,
+            text=text,
+            source_type=source_type,
+            lang=lang
+        )
+        self.input_buffer.append(data)
+        logger.info(
+            f"Added input: {source_type} '{text[:20]}...' "
+            f"(buffer size: {len(self.input_buffer)})"
+        )
+
+    def get_status(self) -> dict:
+        """Get current status"""
+        return {
+            "state": self.state,
+            "device_type": self.device_type,
+            "buffer_size": len(self.input_buffer),
+            "generated_text": self.generated_text
+        }

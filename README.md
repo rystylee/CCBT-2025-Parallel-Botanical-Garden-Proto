@@ -9,14 +9,15 @@
 ## 1. システム概要
 
 ### 1.1 目的
-M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロトコル経由で受信したメッセージに対して、StackFlowを使用したLLMによる詩的テキスト生成とTTS（Text-to-Speech）による音声合成を行うシステムを構築する。
+M5Stack LLM630 Compute Kit上で動作する**分散型Botanical Intelligence (BI)システム**を構築する。複数のBIデバイスがOSC（Open Sound Control）プロトコル経由で相互に通信しながら、StackFlowを使用したLLMによる協調的な詩的テキスト生成（2~3トークン）とTTS（Text-to-Speech）による音声出力を行う。各デバイスは独立したサイクルで動作し、人間の入力と他のBIデバイスからの入力を受け取りながら、短い詩的表現を生成し続ける。
 
 ### 1.2 主な特徴
-- **オンデバイスLLM推論**: クラウド不要のローカルAI処理
+- **分散型サイクルシステム**: 独立した4段階のサイクル（受信→生成→出力→休息）
+- **協調的テキスト生成**: 複数デバイス間でのテキストリレー
+- **オンデバイスLLM推論**: クラウド不要のローカルAI処理（2~3トークン生成）
 - **多言語対応**: 日本語、英語、中国語、フランス語をサポート
-- **リアルタイム処理**: ストリーミング形式での高速レスポンス
-- **柔軟なOSC通信**: 複数エンドポイントによる多様な処理パターン
-- **ソフトプリフィックス対応**: モデル出力の柔軟な制御
+- **タイムスタンプ管理**: データの鮮度管理と時系列順処理
+- **デバイスタイプ切り替え**: 1st_BI（人間+BI入力）と2nd_BI（BI入力のみ）
 
 ### 1.3 動作環境
 - **ハードウェア**: M5Stack LLM630 Compute Kit
@@ -29,42 +30,66 @@ M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロト
 - **設定管理**: Git経由で管理
 
 ### 1.4 システム構成図
+
+#### 分散BIシステム全体像
 ```
-[OSCクライアント]
-    ↓ OSCメッセージ (UDP:8000)
-[M5Stack LLM630 Compute Kit]
-    ├── Pythonアプリケーション
-    │   ├── OSCサーバー (api/osc.py)
-    │   ├── AppController (app.py)
-    │   ├── LLMクライアント (api/llm.py)
-    │   └── TTSクライアント (api/tts.py)
+[人間の入力]          [他のBIデバイス]
+    ↓ OSC                 ↓ OSC
+[1st BI Device] ←→ [2nd BI Device] ←→ [2nd BI Device]
+    ↓                     ↓                 ↓
+  音声出力              音声出力           音声出力
+```
+
+#### 各BIデバイスの内部構成
+```
+[BIデバイス (M5Stack LLM630)]
     │
-    └── StackFlow API (TCP:10001)
-        ├── LLM推論 (Qwen2.5, Llama3.2)
-        └── TTS合成 (MeloTTS)
+    ├── OSC受信 (UDP:8000)
+    │   └── /bi/input (timestamp, text, source_type, lang)
+    │
+    ├── BIController (app.py)
+    │   ├── RECEIVING フェーズ (3秒)
+    │   ├── GENERATING フェーズ
+    │   ├── OUTPUT フェーズ
+    │   └── RESTING フェーズ (1秒)
+    │
+    ├── StackFlow API (TCP:10001)
+    │   ├── LLM推論 (2~3トークン生成)
+    │   └── TTS合成
+    │
+    └── OSC送信 (UDP:8000)
+        └── /bi/input → 次のBIデバイスへ
 ```
 
 ---
 
 ## 2. 機能仕様
 
-### 2.1 LLM推論機能
+### 2.1 LLM推論機能（v2.0: 短文生成特化）
 
 #### 2.1.1 基本仕様
 - **入力**: テキスト文字列（UTF-8）
-- **出力**: 詩的な短文（UTF-8、最大128トークン）
+- **出力**: 詩的な短文（UTF-8、**2~3トークン**）
 - **処理方式**: ストリーミング形式（トークン単位）
 - **対応言語**: 日本語、英語、中国語、フランス語
 - **処理内容**:
+  - 複数の入力テキストを時系列順に連結
   - 入力テキストの言語を検出・翻訳（必要に応じて）
   - システムプロンプト + インストラクションプロンプト付与
-  - ソフトプリフィックス適用（オプション）
+  - ソフトプリフィックス適用（ランダム選択）
   - StackFlow LLM APIへ送信
   - ストリーミングレスポンスを受信・結合
 
 #### 2.1.2 使用モデル
-- **デフォルト**: `qwen2.5-0.5B-prefill-20e`
+- **デフォルト**: `qwen2.5-0.5B-prefill-20e`（全言語対応）
 - **その他**: `llama3.2-1b-prefill-ax630c` など
+
+#### 2.1.3 プロンプト設定（v2.0）
+各言語のインストラクションプロンプトは2~3トークン生成に最適化されています:
+
+- **日本語**: "入力テキストの続きの短い詩的な言葉を日本語で生成してください。出力は必ず2~3トークン以内で生成してください。"
+- **英語**: "Please generate a continuation of the input text with 2-3 tokens of poetic words in English."
+- その他の言語も同様に最適化
 
 ### 2.2 TTS音声合成機能
 
@@ -95,19 +120,20 @@ M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロト
 
 #### 2.3.2 対応OSCエンドポイント
 
+**BIシステム用エンドポイント（v2.0）**
+
 | アドレス | 引数 | 動作 | 実装状態 |
 |---------|------|------|---------|
-| `/process` | text, lang, [prefix_idx] | LLM生成 + TTS音声出力 | ✅ 実装済み |
-| `/process/llm` | text, lang, [prefix_idx] | LLM生成のみ | ✅ 実装済み |
-| `/process/tts` | text, lang | TTS音声出力のみ | ✅ 実装済み |
-| `/reload/llm` | なし | LLMモデルリロード | ⚠️ 未実装 |
-| `/reload/tts` | なし | TTSモデルリロード | ⚠️ 未実装 |
-| `/ae/detect` | なし | ランダムポエティック生成 | ✅ 実装済み |
+| `/bi/input` | timestamp, text, source_type, lang | 入力データ受付（人間・BI両方） | ✅ 実装済み |
+| `/bi/start` | なし | BIサイクル開始 | ✅ 実装済み |
+| `/bi/stop` | なし | BIサイクル停止 | ✅ 実装済み |
+| `/bi/status` | なし | ステータス取得 | ✅ 実装済み |
 
 **引数の説明**:
-- `text` (str): 処理するテキスト
+- `timestamp` (float): UNIXタイムスタンプ（秒）
+- `text` (str): テキストデータ
+- `source_type` (str): "human" または "BI"
 - `lang` (str): 言語コード（`ja`, `en`, `zh`, `fr`）
-- `prefix_idx` (int, optional): ソフトプリフィックスインデックス（0-9）
 
 ### 2.4 翻訳機能
 
@@ -134,6 +160,24 @@ M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロト
     "ip_address": "192.168.151.31"
   },
 
+  "device": {
+    "type": "1st_BI",
+    "_note": "Set to '1st_BI' (accepts human+BI input) or '2nd_BI' (accepts only BI input)"
+  },
+
+  "cycle": {
+    "receive_duration": 3.0,
+    "rest_duration": 1.0,
+    "max_data_age": 60.0
+  },
+
+  "targets": [
+    {
+      "host": "192.168.151.32",
+      "port": 8000
+    }
+  ],
+
   "osc": {
     "receive_port": 8000,
     "send_port": 8000,
@@ -145,7 +189,7 @@ M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロト
   },
 
   "stack_flow_llm": {
-    "max_tokens": 128
+    "max_tokens": 3
   },
 
   "stack_flow_tts": {},
@@ -158,13 +202,37 @@ M5Stack LLM630 Compute Kit上で動作し、OSC（Open Sound Control）プロト
 ```
 
 **設定項目の説明**:
+
+**ネットワーク設定**:
 - `network.device_name`: デバイス名
 - `network.ip_address`: M5StackのIPアドレス
+
+**デバイス設定（v2.0）**:
+- `device.type`: デバイスタイプ（`"1st_BI"` または `"2nd_BI"`）
+  - `1st_BI`: 人間の入力とBIからの入力の両方を受け付ける
+  - `2nd_BI`: BIからの入力のみを受け付ける（人間の入力は無視）
+
+**サイクル設定（v2.0）**:
+- `cycle.receive_duration`: 入力受付期間（秒）
+- `cycle.rest_duration`: 休息期間（秒）
+- `cycle.max_data_age`: データ有効期限（秒、デフォルト60秒）
+
+**ターゲット設定（v2.0）**:
+- `targets`: 送信先BIデバイスのリスト
+  - `host`: ターゲットのIPアドレス
+  - `port`: ターゲットのOSCポート
+
+**OSC設定**:
 - `osc.receive_port`: OSC受信ポート
 - `osc.send_port`: OSC送信ポート
-- `osc.client_address`: OSC送信先アドレス（配列）
+
+**共通設定**:
 - `common.lang`: デフォルト言語（`ja`, `en`, `zh`, `fr`）
-- `stack_flow_llm.max_tokens`: LLM最大トークン数
+
+**StackFlow設定**:
+- `stack_flow_llm.max_tokens`: LLM最大トークン数（v2.0では3に設定）
+
+**システム設定**:
 - `system.debug_mode`: デバッグモード有効化
 - `system.log_level`: ログレベル（`DEBUG`, `INFO`, `WARNING`, `ERROR`）
 
@@ -244,57 +312,62 @@ tmux attach -t ccbt-llm
 
 ## 6. テストクライアントの使用
 
-### 6.1 test.pyの使い方
+### 6.1 BIシステムのテスト（v2.0）
 
-開発用のOSCテストクライアント `test.py` を使用して、アプリケーションの動作確認ができます。
+BIシステム用のテストスクリプト `test/test_bi.py` を使用します。
 
-#### 基本的な使い方
+#### 基本的なサイクルテスト
 
 ```bash
-# ローカルPCから実行（M5StackのIPアドレスを指定）
-uv run python test.py --ip <M5StackのIPアドレス> --port 8000 --message "こんにちは"
+# BIサイクルをテスト（人間の入力とBIの入力を送信）
+python test/test_bi.py --host 192.168.151.31 --test cycle
 ```
 
-#### オプション
-
-| オプション | デフォルト値 | 説明 |
-|-----------|-------------|------|
-| `--ip` | 127.0.0.1 | M5StackのIPアドレス |
-| `--port` | 8000 | OSC受信ポート |
-| `--address` | `/process` | OSCアドレスパターン |
-| `--message` | "" | 送信するメッセージ |
-
-#### 使用例
+#### 古いデータフィルタリングのテスト
 
 ```bash
-# 1. LLM生成 + TTS音声出力（日本語）
-uv run python test.py \
-    --ip 192.168.151.31 \
-    --address /process \
-    --message "こんにちは" "ja"
+# 60秒以上古いデータが破棄されることを確認
+python test/test_bi.py --host 192.168.151.31 --test filter
+```
 
-# 2. LLM生成のみ（音声出力なし）
-uv run python test.py \
-    --ip 192.168.151.31 \
-    --address /process/llm \
-    --message "短い詩を書いて" "ja"
+#### 2nd_BIモードのテスト
 
-# 3. TTS音声出力のみ
-uv run python test.py \
-    --ip 192.168.151.31 \
-    --address /process/tts \
-    --message "これはテストです" "ja"
+```bash
+# 1. config.json の device.type を "2nd_BI" に変更
+# 2. アプリケーションを再起動
+# 3. テストを実行
+python test/test_bi.py --host 192.168.151.31 --test 2nd_bi
+```
 
-# 4. ランダムポエティック生成
-uv run python test.py \
-    --ip 192.168.151.31 \
-    --address /ae/detect
+#### 全テストの実行
 
-# 5. 英語で処理
-uv run python test.py \
-    --ip 192.168.151.31 \
-    --address /process \
-    --message "hello world" "en"
+```bash
+python test/test_bi.py --host 192.168.151.31 --test all
+```
+
+### 6.2 手動でのOSC送信
+
+Pythonインタラクティブシェルから手動でテスト:
+
+```python
+from pythonosc import udp_client
+import time
+
+# クライアント作成
+client = udp_client.SimpleUDPClient("192.168.151.31", 8000)
+
+# 1. BIサイクル開始
+client.send_message("/bi/start", [])
+
+# 2. 入力データ送信
+timestamp = time.time()
+client.send_message("/bi/input", [timestamp, "こんにちは", "human", "ja"])
+
+# 3. ステータス確認
+client.send_message("/bi/status", [])
+
+# 4. サイクル停止
+client.send_message("/bi/stop", [])
 ```
 
 ### 6.2 TTS単体テスト
@@ -467,4 +540,5 @@ CLAUDE.mdに記載された開発ルールに従ってください：
 
 | 日付 | バージョン | 変更内容 |
 |------|-----------|---------|
-| 2025-02-06 | v0.1.0 | 初版リリース、基本機能実装完了 |
+| 2025-02-06 | v2.0.0 | 分散BIシステム実装完了、サイクルベースの協調的テキスト生成 |
+| 2025-02-06 | v1.0.0 | 初版リリース、基本的なOSC-LLM-TTS機能実装完了 |
