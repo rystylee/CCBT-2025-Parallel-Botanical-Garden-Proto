@@ -171,7 +171,7 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システムを構
 - **targets**: 送信先デバイスリスト `[{host, port}, ...]`
 - **osc**: 送受信ポート
 - **common**: 言語設定
-- **stack_flow_llm**: LLM設定（max_tokens: 3）
+- **stack_flow_llm**: LLM設定（max_tokens: 64）
 - **stack_flow_tts**: TTS設定
 - **system**: デバッグモード、ログレベル
 

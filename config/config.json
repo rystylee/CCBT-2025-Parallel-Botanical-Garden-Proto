@@ -26,7 +26,7 @@
     "lang": "ja"
   },
   "stack_flow_llm": {
-    "max_tokens": 3
+    "max_tokens": 64
   },
   "stack_flow_tts": {},
   "system": {

@@ -110,7 +110,7 @@ class BIInputData:
     "send_port": 8000
   },
   "stack_flow_llm": {
-    "max_tokens": 3
+    "max_tokens": 64
   }
 }
 ```
@@ -285,8 +285,8 @@ osc_server.add_handler("/bi/stop", lambda addr, *args:
 **ファイル**: [api/llm.py](../api/llm.py)
 
 変更点:
-- `max_tokens` を3に変更
-- プロンプトを「2~3トークン生成」に変更
+- `max_tokens` を64に変更
+- プロンプトを「短い詩的テキスト生成」に変更
 
 #### 3.2.5 OSCクライアント拡張
 **ファイル**: [api/osc.py](../api/osc.py)
