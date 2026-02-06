@@ -4,7 +4,8 @@ import json
 
 from loguru import logger
 
-from app import AppController, BIController
+from app import AppController
+from bi import BIController
 
 
 def parse_args():
