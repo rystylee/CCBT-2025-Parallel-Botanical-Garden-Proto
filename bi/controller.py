@@ -102,18 +102,19 @@ class BIController:
         """Phase 3: Send output and play TTS"""
         logger.info("OUTPUT phase started")
 
+        # Skip output if buffer is empty
+        if not self.input_buffer:
+            logger.warning("Empty buffer in output phase, skipping output")
+            self.state = "RESTING"
+            return
+
         # Send generated text to target devices
         targets = self.config.get("targets", [])
         lang = self.config.get("common", {}).get("lang", "ja")
 
-        # Use the newest timestamp from buffer (to reflect data freshness)
-        if self.input_buffer:
-            newest_timestamp = max(data.timestamp for data in self.input_buffer)
-            logger.debug(f"Using newest timestamp from buffer: {newest_timestamp}")
-        else:
-            # Fallback: use current time if buffer is empty (should not happen in normal operation)
-            newest_timestamp = time.time()
-            logger.warning("Empty buffer in output phase, using current timestamp")
+        # Use the newest timestamp from buffer
+        newest_timestamp = max(data.timestamp for data in self.input_buffer)
+        logger.debug(f"Using newest timestamp from buffer: {newest_timestamp}")
 
         try:
             self.osc_client.send_to_all_targets(
