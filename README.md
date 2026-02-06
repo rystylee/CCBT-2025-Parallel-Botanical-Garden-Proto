@@ -191,9 +191,14 @@ uv run python main.py
 INFO: Initialize App Controller...
 INFO: Initialize BI Controller...
 INFO: BI Controller initialized as 1st_BI
+INFO: Auto-starting BI cycle
+INFO: Starting BI cycle
 INFO: Starting OSC server
 INFO: OSC Server started on 0.0.0.0:8000
+INFO: RECEIVING phase started
 ```
+
+**注意**: BIサイクルはアプリケーション起動時に自動的に開始されます。
 
 ### バックグラウンド起動（tmux使用）
 
@@ -219,9 +224,10 @@ tmux attach -u -t ccbt-llm
 | エンドポイント | 引数 | 機能 |
 |------------|------|------|
 | `/bi/input` | timestamp, text, source_type, lang | 入力データ受付 |
-| `/bi/start` | なし | サイクル開始 |
 | `/bi/stop` | なし | サイクル停止 |
 | `/bi/status` | なし | ステータス取得 |
+
+**注意**: サイクルはアプリケーション起動時に自動開始されるため、`/bi/start`エンドポイントは不要です。
 
 ### `/bi/input` の引数
 
@@ -243,19 +249,18 @@ import time
 # クライアント作成
 client = udp_client.SimpleUDPClient("192.168.1.100", 8000)
 
-# 1. BIサイクル開始
-client.send_message("/bi/start", [])
-
-# 2. 入力データ送信
+# 1. 入力データ送信
 timestamp = time.time()
 client.send_message("/bi/input", [timestamp, "こんにちは", "human", "ja"])
 
-# 3. ステータス確認
+# 2. ステータス確認
 client.send_message("/bi/status", [])
 
-# 4. サイクル停止
+# 3. サイクル停止（必要な場合）
 client.send_message("/bi/stop", [])
 ```
+
+**注意**: サイクルは自動的に開始されているため、`/bi/start`を送信する必要はありません。
 
 ### テストスクリプトの実行
 

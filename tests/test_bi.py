@@ -14,41 +14,37 @@ def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
 
     print(f"Testing BI system at {host}:{port}")
     print("=" * 50)
-
-    # Start BI cycle
-    print("\n1. Starting BI cycle...")
-    client.send_message("/bi/start", [])
-    time.sleep(0.5)
+    print("NOTE: BI cycle starts automatically on application startup")
 
     # Send first human input
-    print("\n2. Sending first human input: 'こんにちは'")
+    print("\n1. Sending first human input: 'こんにちは'")
     timestamp1 = time.time()
     client.send_message("/bi/input", [timestamp1, "こんにちは", "human", "ja"])
     time.sleep(1.0)
 
     # Send second human input
-    print("\n3. Sending second human input: '世界'")
+    print("\n2. Sending second human input: '世界'")
     timestamp2 = time.time()
     client.send_message("/bi/input", [timestamp2, "世界", "human", "ja"])
     time.sleep(0.5)
 
     # Simulate BI input
-    print("\n4. Sending BI input: 'よ'")
+    print("\n3. Sending BI input: 'よ'")
     timestamp3 = time.time()
     client.send_message("/bi/input", [timestamp3, "よ", "BI", "ja"])
     time.sleep(0.5)
 
     # Check status
-    print("\n5. Checking status...")
+    print("\n4. Checking status...")
     client.send_message("/bi/status", [])
     time.sleep(1.0)
 
     # Wait for the cycle to complete
-    print("\n6. Waiting for cycle to complete...")
+    print("\n5. Waiting for cycle to complete...")
     time.sleep(5.0)
 
     # Send another round of inputs
-    print("\n7. Sending new inputs for second cycle...")
+    print("\n6. Sending new inputs for second cycle...")
     timestamp4 = time.time()
     client.send_message("/bi/input", [timestamp4, "静かな", "human", "ja"])
     time.sleep(1.0)
@@ -58,16 +54,16 @@ def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
     time.sleep(3.0)
 
     # Check status again
-    print("\n8. Checking status again...")
+    print("\n7. Checking status again...")
     client.send_message("/bi/status", [])
     time.sleep(1.0)
 
     # Wait for the second cycle
-    print("\n9. Waiting for second cycle to complete...")
+    print("\n8. Waiting for second cycle to complete...")
     time.sleep(5.0)
 
     # Stop cycle
-    print("\n10. Stopping BI cycle...")
+    print("\n9. Stopping BI cycle...")
     client.send_message("/bi/stop", [])
 
     print("\n" + "=" * 50)
@@ -80,35 +76,31 @@ def test_old_data_filtering(host: str = "192.168.151.31", port: int = 8000):
 
     print(f"Testing old data filtering at {host}:{port}")
     print("=" * 50)
-
-    # Start cycle
-    print("\n1. Starting BI cycle...")
-    client.send_message("/bi/start", [])
-    time.sleep(0.5)
+    print("NOTE: BI cycle starts automatically on application startup")
 
     # Send very old data (should be filtered out)
-    print("\n2. Sending old data (61 seconds ago)...")
+    print("\n1. Sending old data (61 seconds ago)...")
     old_timestamp = time.time() - 61.0
     client.send_message("/bi/input", [old_timestamp, "古いデータ", "human", "ja"])
     time.sleep(0.5)
 
     # Send recent data (should be kept)
-    print("\n3. Sending recent data...")
+    print("\n2. Sending recent data...")
     recent_timestamp = time.time()
     client.send_message("/bi/input", [recent_timestamp, "新しいデータ", "human", "ja"])
     time.sleep(3.0)
 
     # Check status
-    print("\n4. Checking status (should only have 1 item)...")
+    print("\n3. Checking status (should only have 1 item)...")
     client.send_message("/bi/status", [])
     time.sleep(1.0)
 
     # Wait for cycle
-    print("\n5. Waiting for cycle to complete...")
+    print("\n4. Waiting for cycle to complete...")
     time.sleep(5.0)
 
     # Stop
-    print("\n6. Stopping BI cycle...")
+    print("\n5. Stopping BI cycle...")
     client.send_message("/bi/stop", [])
 
     print("\n" + "=" * 50)
@@ -125,35 +117,31 @@ def test_2nd_bi_mode(host: str = "192.168.151.31", port: int = 8000):
     print(f"Testing 2nd_BI mode at {host}:{port}")
     print("=" * 50)
     print("NOTE: Ensure device.type is set to '2nd_BI' in config")
-
-    # Start cycle
-    print("\n1. Starting BI cycle...")
-    client.send_message("/bi/start", [])
-    time.sleep(0.5)
+    print("NOTE: BI cycle starts automatically on application startup")
 
     # Send human input (should be ignored)
-    print("\n2. Sending human input (should be ignored)...")
+    print("\n1. Sending human input (should be ignored)...")
     timestamp1 = time.time()
     client.send_message("/bi/input", [timestamp1, "人間の入力", "human", "ja"])
     time.sleep(1.0)
 
     # Send BI input (should be accepted)
-    print("\n3. Sending BI input (should be accepted)...")
+    print("\n2. Sending BI input (should be accepted)...")
     timestamp2 = time.time()
     client.send_message("/bi/input", [timestamp2, "BIからの入力", "BI", "ja"])
     time.sleep(3.0)
 
     # Check status
-    print("\n4. Checking status (should only have BI input)...")
+    print("\n3. Checking status (should only have BI input)...")
     client.send_message("/bi/status", [])
     time.sleep(1.0)
 
     # Wait for cycle
-    print("\n5. Waiting for cycle to complete...")
+    print("\n4. Waiting for cycle to complete...")
     time.sleep(5.0)
 
     # Stop
-    print("\n6. Stopping BI cycle...")
+    print("\n5. Stopping BI cycle...")
     client.send_message("/bi/stop", [])
 
     print("\n" + "=" * 50)

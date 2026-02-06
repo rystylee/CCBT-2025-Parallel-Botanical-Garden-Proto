@@ -14,7 +14,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+async def async_main():
     opt = parse_args()
 
     with open(opt.config_path, mode="r", encoding="utf-8") as f:
@@ -29,9 +29,6 @@ def main():
     def handle_bi_input(_, *args):
         bi.add_input(args[0], args[1], args[2], args[3])
 
-    def handle_bi_start(_, *__):
-        asyncio.create_task(bi.start_cycle())
-
     def handle_bi_stop(_, *__):
         bi.stop_cycle()
 
@@ -39,12 +36,19 @@ def main():
         logger.info(f"BI Status: {bi.get_status()}")
 
     app.osc_server.register_handler("/bi/input", handle_bi_input)
-    app.osc_server.register_handler("/bi/start", handle_bi_start)
     app.osc_server.register_handler("/bi/stop", handle_bi_stop)
     app.osc_server.register_handler("/bi/status", handle_bi_status)
 
+    # Auto-start BI cycle on startup
+    logger.info("Auto-starting BI cycle")
+    asyncio.create_task(bi.start_cycle())
+
     # Run app
-    asyncio.run(app.run())
+    await app.run()
+
+
+def main():
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":
