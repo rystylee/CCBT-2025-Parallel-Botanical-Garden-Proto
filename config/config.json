@@ -3,10 +3,6 @@
     "device_name": "M5Stack-LLM-01",
     "ip_address": "192.168.151.31"
   },
-  "device": {
-    "type": "1st_BI",
-    "_note": "Set to '1st_BI' (accepts human+BI input) or '2nd_BI' (accepts only BI input)"
-  },
   "cycle": {
     "receive_duration": 3.0,
     "rest_duration": 1.0,

@@ -20,7 +20,6 @@ class BIController:
         self.config = config
         self.state = "STOPPED"
         self.input_buffer: List[BIInputData] = []
-        self.device_type = config.get("device", {}).get("type", "1st_BI")
         self.generated_text = ""
         self.tts_text = ""
 
@@ -29,7 +28,7 @@ class BIController:
         self.tts_client = StackFlowTTSClient(config)
         self.osc_client = OscClient(config)
 
-        logger.info(f"BI Controller initialized as {self.device_type}")
+        logger.info("BI Controller initialized")
 
     async def start_cycle(self):
         """Start the BI cycle loop"""
@@ -158,11 +157,6 @@ class BIController:
             )
             return
 
-        # Filter by device type (2nd_BI ignores human input)
-        if self.device_type == "2nd_BI" and source_type == "HUMAN":
-            logger.debug(f"Filtered human input (2nd_BI mode): '{text[:20]}...'")
-            return
-
         data = BIInputData(timestamp=timestamp, text=text, source_type=source_type, lang=lang)
         self.input_buffer.append(data)
         logger.info(f"Added input: {source_type} '{text[:20]}...' " f"(buffer size: {len(self.input_buffer)})")
@@ -171,7 +165,6 @@ class BIController:
         """Get current status"""
         return {
             "state": self.state,
-            "device_type": self.device_type,
             "buffer_size": len(self.input_buffer),
             "generated_text": self.generated_text,
         }

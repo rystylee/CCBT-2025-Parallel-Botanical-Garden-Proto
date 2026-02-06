@@ -107,32 +107,30 @@ def test_old_data_filtering(host: str = "192.168.151.31", port: int = 8000):
     print("Old data filtering test completed!")
 
 
-def test_2nd_bi_mode(host: str = "192.168.151.31", port: int = 8000):
+def test_mixed_input(host: str = "192.168.151.31", port: int = 8000):
     """
-    Test 2nd_BI mode (should ignore human inputs)
-    Note: Change config device.type to "2nd_BI" before running this test
+    Test mixed input (human + BI inputs)
     """
     client = udp_client.SimpleUDPClient(host, port)
 
-    print(f"Testing 2nd_BI mode at {host}:{port}")
+    print(f"Testing mixed input mode at {host}:{port}")
     print("=" * 50)
-    print("NOTE: Ensure device.type is set to '2nd_BI' in config")
     print("NOTE: BI cycle starts automatically on application startup")
 
-    # Send human input (should be ignored)
-    print("\n1. Sending human input (should be ignored)...")
+    # Send human input
+    print("\n1. Sending human input...")
     timestamp1 = time.time()
-    client.send_message("/bi/input", [timestamp1, "人間の入力", "human", "ja"])
+    client.send_message("/bi/input", [timestamp1, "人間の入力", "HUMAN", "ja"])
     time.sleep(1.0)
 
-    # Send BI input (should be accepted)
-    print("\n2. Sending BI input (should be accepted)...")
+    # Send BI input
+    print("\n2. Sending BI input...")
     timestamp2 = time.time()
     client.send_message("/bi/input", [timestamp2, "BIからの入力", "BI", "ja"])
     time.sleep(3.0)
 
     # Check status
-    print("\n3. Checking status (should only have BI input)...")
+    print("\n3. Checking status (should have both inputs)...")
     client.send_message("/bi/status", [])
     time.sleep(1.0)
 
@@ -145,7 +143,7 @@ def test_2nd_bi_mode(host: str = "192.168.151.31", port: int = 8000):
     client.send_message("/bi/stop", [])
 
     print("\n" + "=" * 50)
-    print("2nd_BI mode test completed!")
+    print("Mixed input test completed!")
 
 
 def main():
@@ -153,7 +151,7 @@ def main():
     parser.add_argument("--host", type=str, default="192.168.151.31", help="Target host IP address")
     parser.add_argument("--port", type=int, default=8000, help="Target port")
     parser.add_argument(
-        "--test", type=str, default="cycle", choices=["cycle", "filter", "2nd_bi", "all"], help="Test to run"
+        "--test", type=str, default="cycle", choices=["cycle", "filter", "mixed", "all"], help="Test to run"
     )
 
     args = parser.parse_args()
@@ -162,14 +160,14 @@ def main():
         test_bi_cycle(args.host, args.port)
     elif args.test == "filter":
         test_old_data_filtering(args.host, args.port)
-    elif args.test == "2nd_bi":
-        test_2nd_bi_mode(args.host, args.port)
+    elif args.test == "mixed":
+        test_mixed_input(args.host, args.port)
     elif args.test == "all":
         test_bi_cycle(args.host, args.port)
         time.sleep(2)
         test_old_data_filtering(args.host, args.port)
-        print("\n\nFor 2nd_BI test, change config and run:")
-        print(f"  python test_bi.py --host {args.host} --test 2nd_bi")
+        time.sleep(2)
+        test_mixed_input(args.host, args.port)
 
 
 if __name__ == "__main__":

@@ -103,13 +103,11 @@ class BIInputData:
 - [x] 自動起動 - アプリケーション起動時にサイクルが自動開始
 
 ### 3.3 設定ファイル（✅ 完了）
-- [x] デバイスタイプ設定（1st_BI / 2nd_BI）
 - [x] サイクル設定（receive_duration, rest_duration, max_data_age）
 - [x] ターゲットデバイスリスト
 
 ### 3.4 データフィルタリング（✅ 完了）
 - [x] タイムスタンプによる古いデータ破棄
-- [x] デバイスタイプ別フィルタリング（2nd_BIは人間入力を無視）
 - [x] 時系列順データ連結
 
 ---
@@ -144,11 +142,6 @@ def add_input(self, timestamp: float, text: str, source_type: str, lang: str):
     # Check timestamp immediately
     if (current_time - timestamp) > max_age:
         logger.warning(f"Rejected old data: timestamp={timestamp}, age={current_time - timestamp:.2f}s")
-        return
-
-    # Filter by device type (2nd_BI ignores human input)
-    if self.device_type == "2nd_BI" and source_type == "HUMAN":
-        logger.debug("Filtered human input (2nd_BI mode)")
         return
 
     data = BIInputData(timestamp=timestamp, text=text, source_type=source_type, lang=lang)
@@ -222,8 +215,6 @@ async def _receiving_phase(self):
   - セットアップガイド
   - 使用方法
 - [ ] 設定ファイルサンプル追加
-  - 1st_BI用サンプル
-  - 2nd_BI用サンプル
   - 複数デバイス構成例
 
 ### 4.3 将来的な拡張（優先度: 低）

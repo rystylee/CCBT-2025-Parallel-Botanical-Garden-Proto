@@ -18,17 +18,15 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 ## 2. システムアーキテクチャ
 
-### 2.1 デバイスタイプ
+### 2.1 デバイスの役割
 
-**1st BI（プライマリBI）**
-- マイク入力（人間の声）を受け付ける
-- 他のBIデバイスからの信号も受け付ける
-- 入力: `{timestamp, text(from human), text(from BI), lang}`
+全てのBIデバイスは同一の動作を行います：
+- 他のBIデバイスからの信号を受け付ける
+- 人間の声（マイク入力）を受け付ける
+- 入力: `{timestamp, text, source_type, lang}`
+  - `source_type`: "HUMAN"（人間からの入力）または "BI"（他のBIからの入力）
 
-**2nd BI（セカンダリBI）**
-- 他のBIデバイスからの信号のみを受け付ける
-- 人間の入力は無視
-- 入力: `{timestamp, text(from BI), lang}`
+**注意**: どのBIデバイスにも人間の入力を送ることができます。システムはデバイスの種類を区別せず、入力元（source_type）のみを記録します。
 
 ### 2.2 動作サイクル
 
@@ -60,7 +58,7 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 1. **タイムスタンプの発行元**
    - **人間からの入力時のみ**、新しいタイムスタンプを発行
-   - 1st BIが人間の音声を受け取った時点でUNIXタイムスタンプを生成
+   - BIデバイスが人間の音声を受け取った時点でUNIXタイムスタンプを生成
 
 2. **タイムスタンプの伝播**
    - BIが他のBIに信号を送る際は、**元のタイムスタンプをそのまま使用**
@@ -74,15 +72,15 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 **データフロー例**
 
 ```
-[人間] --timestamp:100--> [1st BI] --timestamp:100--> [2nd BI] --timestamp:100--> [3rd BI]
-  ↑                          ↑                            ↑
-新規発行                   保持して転送                  保持して転送
+[人間] --timestamp:100--> [BI-A] --timestamp:100--> [BI-B] --timestamp:100--> [BI-C]
+  ↑                          ↑                         ↑
+新規発行                   保持して転送              保持して転送
 ```
 
 **複数入力時の処理**
 
 ```
-[1st BI のバッファ]
+[BI-A のバッファ]
 - Input A (timestamp: 100, text: "こんにちは")
 - Input B (timestamp: 105, text: "今日は")  ← 最新
 
@@ -130,9 +128,6 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 ```json
 {
-  "device": {
-    "type": "1st_BI"  // or "2nd_BI"
-  },
   "cycle": {
     "receive_duration": 3.0,  // 入力受付期間（秒）
     "rest_duration": 1.0,     // 休息期間（秒）

@@ -20,7 +20,7 @@ M5Stack LLM Compute Kit上で動作する分散型Botanical Intelligence (BI)シ
 - **協調的テキスト生成**: 複数デバイス間でのテキストリレー
 - **オンデバイスLLM推論**: クラウド不要のローカルAI処理（2~3トークン生成）
 - **タイムスタンプ管理**: データの鮮度管理と時系列順処理
-- **デバイスタイプ切り替え**: 1st_BI（人間+BI入力）と2nd_BI（BI入力のみ）
+- **柔軟な入力受付**: 全てのデバイスが人間とBIの両方の入力を受け付け可能
 
 ### 動作環境
 
@@ -34,10 +34,12 @@ M5Stack LLM Compute Kit上で動作する分散型Botanical Intelligence (BI)シ
 ```
 [人間の入力]          [他のBIデバイス]
     ↓ OSC                 ↓ OSC
-[1st BI Device] ←→ [2nd BI Device] ←→ [2nd BI Device]
+[BI Device A] ←→ [BI Device B] ←→ [BI Device C]
     ↓                     ↓                 ↓
   音声出力              音声出力           音声出力
 ```
+
+**注意**: 全てのBIデバイスは同一の動作を行い、人間とBIの両方の入力を受け付けます。
 
 ### BIサイクル
 
@@ -100,9 +102,6 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
 
 ```json
 {
-  "device": {
-    "type": "1st_BI"  // "1st_BI" (人間+BI入力) or "2nd_BI" (BI入力のみ)
-  },
   "cycle": {
     "receive_duration": 3.0,   // 入力受付期間（秒）
     "rest_duration": 1.0,      // 休息期間（秒）
@@ -125,9 +124,6 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
 
 ### 主な設定項目
 
-- **device.type**: デバイスタイプ
-  - `1st_BI`: 人間の入力とBIからの入力の両方を受け付ける
-  - `2nd_BI`: BIからの入力のみを受け付ける
 - **cycle**: サイクル設定
   - `receive_duration`: 入力受付期間
   - `rest_duration`: 休息期間
@@ -190,7 +186,7 @@ uv run python main.py
 ```
 INFO: Initialize App Controller...
 INFO: Initialize BI Controller...
-INFO: BI Controller initialized as 1st_BI
+INFO: BI Controller initialized
 INFO: Auto-starting BI cycle
 INFO: Starting BI cycle
 INFO: Starting OSC server
