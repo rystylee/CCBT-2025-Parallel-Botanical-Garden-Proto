@@ -165,19 +165,17 @@ class BIController:
         timestamp = time.time()
         lang = self.config.get("common", {}).get("lang", "ja")
 
-        for target in targets:
-            try:
-                self.osc_client.send_to_target(
-                    target,
-                    "/bi/input",
-                    timestamp,
-                    self.generated_text,
-                    "BI",  # source_type
-                    lang
-                )
-                logger.info(f"Sent to {target['host']}:{target['port']}")
-            except Exception as e:
-                logger.error(f"Error sending to target: {e}")
+        try:
+            self.osc_client.send_to_all_targets(
+                targets,
+                "/bi/input",
+                timestamp,
+                self.generated_text,
+                "BI",  # source_type
+                lang
+            )
+        except Exception as e:
+            logger.error(f"Error sending to targets: {e}")
 
         # Play TTS (all inputs + generated)
         try:

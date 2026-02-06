@@ -3,18 +3,30 @@
     "device_name": "M5Stack-LLM-01",
     "ip_address": "192.168.151.31"
   },
+  "device": {
+    "type": "1st_BI",
+    "_note": "Set to '1st_BI' (accepts human+BI input) or '2nd_BI' (accepts only BI input)"
+  },
+  "cycle": {
+    "receive_duration": 3.0,
+    "rest_duration": 1.0,
+    "max_data_age": 60.0
+  },
+  "targets": [
+    {
+      "host": "192.168.151.32",
+      "port": 8000
+    }
+  ],
   "osc": {
     "receive_port": 8000,
-    "send_port": 8000,
-    "client_address": [
-      "10.0.0.2"
-    ]
+    "send_port": 8000
   },
   "common": {
     "lang": "ja"
   },
   "stack_flow_llm": {
-    "max_tokens": 128
+    "max_tokens": 3
   },
   "stack_flow_tts": {},
   "system": {

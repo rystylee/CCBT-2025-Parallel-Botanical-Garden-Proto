@@ -7,9 +7,6 @@ from pythonosc.osc_server import AsyncIOOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
 from pythonosc import osc_message_builder
 
-from api.llm import StackFlowLLMClient
-from api.tts import StackFlowTTSClient
-
 
 class OscServer:
     def __init__(
@@ -28,7 +25,7 @@ class OscServer:
 
     def register_handler(self, address, func):
         self.dispatcher.map(address, func)
-    
+
     async def start_server(self):
         server = AsyncIOOSCUDPServer(
             (self.ip_address, self.port),
@@ -48,18 +45,31 @@ class OscClient:
         config: dict
     ):
         self.config = config
-        self.client_address: List[str] = config.get("osc").get("client_address")
         self.port = config.get("osc").get("send_port")
 
-        self.clients = []
-        for address in self.client_address:
-            self.clients.append(SimpleUDPClient(address, self.port))
+    def send_to_target(self, target: dict, address: str, *args):
+        """Send OSC message to a specific target device"""
+        client = SimpleUDPClient(target["host"], target["port"])
+        msg = osc_message_builder.OscMessageBuilder(address=address)
+        for arg in args:
+            msg.add_arg(arg)
+        msg = msg.build()
+        client.send(msg)
+        logger.info(
+            f"sent to target {target['host']}:{target['port']} "
+            f"address: {address} msg: {msg}"
+        )
 
-    def send(self, address, *messages):
-        for client in self.clients:
-            msg = osc_message_builder.OscMessageBuilder(address=address)
-            for message in messages:
-                msg.add_arg(message)
-            msg = msg.build()
-            client.send(msg)
-        logger.info(f"sent the message. address: {address} msg: {msg}")
+    def send_to_all_targets(self, targets: List[dict], address: str, *args):
+        """Send OSC message to multiple target devices"""
+        if not targets:
+            logger.warning("No targets specified for OSC message")
+            return
+
+        for target in targets:
+            try:
+                self.send_to_target(target, address, *args)
+            except Exception as e:
+                logger.error(
+                    f"Failed to send OSC to {target['host']}:{target['port']}: {e}"
+                )
