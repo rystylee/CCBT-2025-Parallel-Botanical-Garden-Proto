@@ -136,7 +136,6 @@ dmypy.json
 # Claude Code
 .claude/
 CLAUDE.md
-docs/
 
 # model data
 TinySwallow-1.5B-Instruct/
