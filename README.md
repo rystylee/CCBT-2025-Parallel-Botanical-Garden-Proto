@@ -262,6 +262,24 @@ client.send_message("/bi/stop", [])
 
 **注意**: サイクルは自動的に開始されているため、`/bi/start`を送信する必要はありません。
 
+### デバッグスクリプト
+
+別のマシンから稼働中のBIデバイスに/bi/inputメッセージを送信するスクリプト:
+
+```bash
+# 基本的な使用方法（人間の入力として日本語テキストを送信）
+python scripts/send_bi_input.py -H 192.168.1.100 -t "こんにちは"
+
+# BIからの入力として送信（英語）
+python scripts/send_bi_input.py -H 192.168.1.100 -t "Hello world" -s BI -l en
+
+# カスタムポートを指定
+python scripts/send_bi_input.py -H 192.168.1.100 -p 9000 -t "世界"
+
+# ヘルプを表示
+python scripts/send_bi_input.py --help
+```
+
 ### テストスクリプトの実行
 
 ```bash
