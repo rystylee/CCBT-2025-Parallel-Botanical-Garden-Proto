@@ -1,12 +1,19 @@
 import json
-from loguru import logger
-from googletrans import Translator
+
 import argostranslate.package
 import argostranslate.translate
+from googletrans import Translator
+from loguru import logger
 
-from stackflow.utils import create_tcp_connection, close_tcp_connection
-from stackflow.utils import send_json, receive_response, parse_setup_response, exit_session
 from api.utils import LLM_SETTINGS
+from stackflow.utils import (
+    close_tcp_connection,
+    create_tcp_connection,
+    exit_session,
+    parse_setup_response,
+    receive_response,
+    send_json,
+)
 
 
 class StackFlowLLMClient:
@@ -42,11 +49,13 @@ class StackFlowLLMClient:
         logger.info(f"instruction_prompt: {self.instruction_prompt}")
         logger.info("")
 
-    async def generate_text(self, query: str, lang: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0) -> str:
+    async def generate_text(
+        self, query: str, lang: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0
+    ) -> str:
         logger.info(f"query: {query}")
         translated_query = await self._translate(query, lang)
         logger.info(f"translated_query: {translated_query}")
-        prompt = self.instruction_prompt +  translated_query
+        prompt = self.instruction_prompt + translated_query
         logger.info(f"prompt: {prompt}")
         if soft_prefix_b64 is not None:
             logger.info(f"soft_prefix_b64: {soft_prefix_b64[:30]}... len: {soft_prefix_len}")
@@ -54,7 +63,7 @@ class StackFlowLLMClient:
         send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
         send_json(self.sock, send_data)
 
-        output  = ""
+        output = ""
         while True:
             response = receive_response(self.sock)
             response_data = json.loads(response)
@@ -63,8 +72,8 @@ class StackFlowLLMClient:
             if data is None:
                 break
 
-            delta = data.get('delta')
-            finish = data.get('finish')
+            delta = data.get("delta")
+            finish = data.get("finish")
             output += delta
             logger.debug(delta)
 
@@ -83,7 +92,7 @@ class StackFlowLLMClient:
         return llm_work_id
 
     def _setup(self, sock, init_data) -> str:
-        sent_request_id = init_data['request_id']
+        sent_request_id = init_data["request_id"]
         send_json(sock, init_data)
         response = receive_response(sock)
         response_data = json.loads(response)
@@ -91,12 +100,12 @@ class StackFlowLLMClient:
         return parse_setup_response(response_data, sent_request_id)
 
     def _parse_inference_response(self, response_data: dict) -> str:
-        error = response_data.get('error')
-        if error and error.get('code') != 0:
+        error = response_data.get("error")
+        if error and error.get("code") != 0:
             print(f"Error Code: {error['code']}, Message: {error['message']}")
             return None
 
-        return response_data.get('data')
+        return response_data.get("data")
 
     def _create_init_data(self) -> dict:
         return {
@@ -110,23 +119,15 @@ class StackFlowLLMClient:
                 "input": "llm.utf-8.stream",
                 "enoutput": True,
                 "max_token_len": self.max_tokens,
-                "prompt": self.system_prompt
-            }
+                "prompt": self.system_prompt,
+            },
         }
 
     def _create_deinit_data(self) -> dict:
-        return {
-            "request_id": "llm_exit",
-            "work_id": self.llm_work_id,
-            "action": "exit"
-        }
-    
+        return {"request_id": "llm_exit", "work_id": self.llm_work_id, "action": "exit"}
+
     def _create_send_data(self, prompt: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0) -> dict:
-        data_obj = {
-            "delta": prompt,
-            "index": 0,
-            "finish": True
-        }
+        data_obj = {"delta": prompt, "index": 0, "finish": True}
         if soft_prefix_b64 is not None:
             data_obj["soft_prefix"] = {"len": int(soft_prefix_len), "data_b64": soft_prefix_b64}
 
@@ -135,7 +136,7 @@ class StackFlowLLMClient:
             "work_id": self.llm_work_id,
             "action": "inference",
             "object": "llm.utf-8.stream",
-            "data": data_obj
+            "data": data_obj,
         }
 
     async def _translate(self, query: str, lang: str) -> str:
@@ -151,6 +152,6 @@ class StackFlowLLMClient:
     def _postprocess(self, text: str) -> str:
         if ":" in text:
             idx = text.find(":")
-            return text[idx+1:]
+            return text[idx + 1 :]
         else:
             return text

@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+
 from loguru import logger
 
 from app import AppController, BIController
@@ -8,11 +9,7 @@ from app import AppController, BIController
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default="config/config.json"
-    )
+    parser.add_argument("--config_path", type=str, default="config/config.json")
     return parser.parse_args()
 
 
@@ -51,5 +48,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

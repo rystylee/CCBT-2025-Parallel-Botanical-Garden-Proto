@@ -2,10 +2,10 @@ import asyncio
 from typing import List
 
 from loguru import logger
+from pythonosc import osc_message_builder
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import AsyncIOOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
-from pythonosc import osc_message_builder
 
 
 class OscServer:
@@ -27,11 +27,7 @@ class OscServer:
         self.dispatcher.map(address, func)
 
     async def start_server(self):
-        server = AsyncIOOSCUDPServer(
-            (self.ip_address, self.port),
-            self.dispatcher,
-            asyncio.get_event_loop()
-        )
+        server = AsyncIOOSCUDPServer((self.ip_address, self.port), self.dispatcher, asyncio.get_event_loop())
         logger.info(f"Serving on ip: {self.ip_address} port: {self.port}")
         self.transport, protocol = await server.create_serve_endpoint()
 
@@ -40,10 +36,7 @@ class OscServer:
 
 
 class OscClient:
-    def __init__(
-        self,
-        config: dict
-    ):
+    def __init__(self, config: dict):
         self.config = config
         self.port = config.get("osc").get("send_port")
 
@@ -55,10 +48,7 @@ class OscClient:
             msg.add_arg(arg)
         msg = msg.build()
         client.send(msg)
-        logger.info(
-            f"sent to target {target['host']}:{target['port']} "
-            f"address: {address} msg: {msg}"
-        )
+        logger.info(f"sent to target {target['host']}:{target['port']} " f"address: {address} msg: {msg}")
 
     def send_to_all_targets(self, targets: List[dict], address: str, *args):
         """Send OSC message to multiple target devices"""
@@ -70,6 +60,4 @@ class OscClient:
             try:
                 self.send_to_target(target, address, *args)
             except Exception as e:
-                logger.error(
-                    f"Failed to send OSC to {target['host']}:{target['port']}: {e}"
-                )
+                logger.error(f"Failed to send OSC to {target['host']}:{target['port']}: {e}")

@@ -4,13 +4,14 @@ import os
 import socket
 import time
 from pathlib import Path
+
 from loguru import logger
 
 
 def send_json(sock, data):
     try:
-        json_data = json.dumps(data, ensure_ascii=False) + '\n'
-        sock.sendall(json_data.encode('utf-8'))
+        json_data = json.dumps(data, ensure_ascii=False) + "\n"
+        sock.sendall(json_data.encode("utf-8"))
     except Exception as e:
         logger.error(f"Error at send_json: {e}")
 
@@ -27,13 +28,13 @@ def receive_response(sock, timeout=None):
         #     if '\n' in response:
         #         break
         # return response.strip()
-        response = ''
+        response = ""
         while True:
             data = sock.recv(4096)
             if data:
-                part = data.decode('utf-8')
+                part = data.decode("utf-8")
                 response += part
-                if '\n' in response:
+                if "\n" in response:
                     break
         return response.strip()
     except Exception as e:
@@ -67,14 +68,14 @@ def receive_json_line(sock, timeout=5.0):
             if not chunk:
                 raise RuntimeError("connection closed")
             buf.extend(chunk)
-            if b'\n' in buf:
+            if b"\n" in buf:
                 break
-        line = bytes(buf).split(b'\n', 1)[0]
-        response = json.loads(line.decode('utf-8'))
-        print(f'受信したレスポンス: {response}')
+        line = bytes(buf).split(b"\n", 1)[0]
+        response = json.loads(line.decode("utf-8"))
+        print(f"受信したレスポンス: {response}")
         return response
     except Exception as e:
-        print(f'レスポンス受信エラー: {e}')
+        print(f"レスポンス受信エラー: {e}")
         return None
 
 
@@ -102,8 +103,8 @@ def main(args):
                 "capVolume": 0.5,
                 "playcard": 0,
                 "playdevice": 1,
-                "playVolume": 0.15
-            }
+                "playVolume": 0.15,
+            },
         }
         send_json(client_socket, audio_setup)
         response = receive_response(client_socket)
@@ -123,8 +124,8 @@ def main(args):
                 "input": "tts.utf-8",
                 # "input": ["tts.utf-8.stream"],
                 "enoutput": False,
-                "enaudio": True
-            }
+                "enaudio": True,
+            },
         }
         send_json(client_socket, tts_setup)
         response = receive_response(client_socket)
@@ -139,7 +140,7 @@ def main(args):
             "work_id": tts_id,
             "action": "inference",
             "object": "tts.utf-8",
-            "data": text
+            "data": text,
             # "object": "tts.utf-8.stream",
             # "data": {
             #     "delta": text,
@@ -153,26 +154,22 @@ def main(args):
         response_data = json.loads(response)
         logger.info(f"tts inference response: {response_data}")
         logger.info("Finished tts inference")
-        
+
         time.sleep(5)
-        
+
         logger.info("Reseting...")
-        reset_request = {
-            "request_id": "4",
-            "work_id": "sys",
-            "action": "reset"
-        }
+        reset_request = {"request_id": "4", "work_id": "sys", "action": "reset"}
         send_json(client_socket, reset_request)
         response = receive_response(client_socket)
 
     except Exception as e:
-        logger.error(f'Error: {e}')
+        logger.error(f"Error: {e}")
     finally:
         client_socket.close()
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='TCP Client to send JSON data.')
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="TCP Client to send JSON data.")
     parser.add_argument("--host", type=str, default="localhost")
     parser.add_argument("--port", type=int, default=10001)
     parser.add_argument("--model", type=str, default="melotts-ja-jp")

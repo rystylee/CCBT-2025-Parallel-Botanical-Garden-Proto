@@ -2,8 +2,9 @@
 """
 Test script for Botanical Intelligence (BI) system
 """
-import time
 import argparse
+import time
+
 from pythonosc import udp_client
 
 
@@ -88,19 +89,13 @@ def test_old_data_filtering(host: str = "192.168.151.31", port: int = 8000):
     # Send very old data (should be filtered out)
     print("\n2. Sending old data (61 seconds ago)...")
     old_timestamp = time.time() - 61.0
-    client.send_message(
-        "/bi/input",
-        [old_timestamp, "古いデータ", "human", "ja"]
-    )
+    client.send_message("/bi/input", [old_timestamp, "古いデータ", "human", "ja"])
     time.sleep(0.5)
 
     # Send recent data (should be kept)
     print("\n3. Sending recent data...")
     recent_timestamp = time.time()
-    client.send_message(
-        "/bi/input",
-        [recent_timestamp, "新しいデータ", "human", "ja"]
-    )
+    client.send_message("/bi/input", [recent_timestamp, "新しいデータ", "human", "ja"])
     time.sleep(3.0)
 
     # Check status
@@ -166,27 +161,11 @@ def test_2nd_bi_mode(host: str = "192.168.151.31", port: int = 8000):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Test script for BI system"
-    )
+    parser = argparse.ArgumentParser(description="Test script for BI system")
+    parser.add_argument("--host", type=str, default="192.168.151.31", help="Target host IP address")
+    parser.add_argument("--port", type=int, default=8000, help="Target port")
     parser.add_argument(
-        "--host",
-        type=str,
-        default="192.168.151.31",
-        help="Target host IP address"
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Target port"
-    )
-    parser.add_argument(
-        "--test",
-        type=str,
-        default="cycle",
-        choices=["cycle", "filter", "2nd_bi", "all"],
-        help="Test to run"
+        "--test", type=str, default="cycle", choices=["cycle", "filter", "2nd_bi", "all"], help="Test to run"
     )
 
     args = parser.parse_args()

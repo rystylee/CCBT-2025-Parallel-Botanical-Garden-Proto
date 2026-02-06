@@ -3,8 +3,10 @@
 Test script for multiple OSC target sending
 """
 import json
-from api.osc import OscClient
+
 from loguru import logger
+
+from api.osc import OscClient
 
 
 def test_multi_target_send():
@@ -28,18 +30,12 @@ def test_multi_target_send():
 
     # Test send to all targets
     import time
+
     timestamp = time.time()
     test_text = "テストメッセージ"
 
     logger.info("Sending to all targets...")
-    osc_client.send_to_all_targets(
-        config["targets"],
-        "/bi/input",
-        timestamp,
-        test_text,
-        "BI",
-        "ja"
-    )
+    osc_client.send_to_all_targets(config["targets"], "/bi/input", timestamp, test_text, "BI", "ja")
 
     logger.info("Multi-target send test completed!")
 

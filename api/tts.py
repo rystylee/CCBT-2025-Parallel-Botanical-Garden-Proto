@@ -1,9 +1,16 @@
 import json
+
 from loguru import logger
 
-from stackflow.utils import create_tcp_connection, close_tcp_connection
-from stackflow.utils import send_json, receive_response, parse_setup_response, exit_session
 from api.utils import TTS_SETTINGS
+from stackflow.utils import (
+    close_tcp_connection,
+    create_tcp_connection,
+    exit_session,
+    parse_setup_response,
+    receive_response,
+    send_json,
+)
 
 
 class StackFlowTTSClient:
@@ -75,8 +82,8 @@ class StackFlowTTSClient:
                 "capVolume": 0.5,
                 "playcard": 0,
                 "playdevice": 1,
-                "playVolume": 0.15
-            }
+                "playVolume": 0.15,
+            },
         }
 
     def _create_tts_setup_data(self) -> dict:
@@ -90,8 +97,8 @@ class StackFlowTTSClient:
                 "response_format": "sys.pcm",
                 "input": ["tts.utf-8.stream"],
                 "enoutput": False,
-                "enaudio": True
-            }
+                "enaudio": True,
+            },
         }
 
     def _create_inference_data(self, text: str) -> dict:
@@ -100,17 +107,8 @@ class StackFlowTTSClient:
             "work_id": self.tts_work_id,
             "action": "inference",
             "object": "tts.utf-8.stream",
-            "data": {
-                "delta": text,
-                "index": 0,
-                "finish": True
-            }
+            "data": {"delta": text, "index": 0, "finish": True},
         }
 
     def _create_reset_data(self) -> dict:
-        return {
-            "request_id": "4",
-            "work_id": "sys",
-            "action": "reset"
-        }
-    
+        return {"request_id": "4", "work_id": "sys", "action": "reset"}
