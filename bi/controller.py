@@ -63,9 +63,8 @@ class BIController:
         receive_duration = self.config.get("cycle", {}).get("receive_duration", 3.0)
         await asyncio.sleep(receive_duration)
 
-        # Filter old data
-        self._filter_old_data()
-        logger.info(f"Buffer size after filtering: {len(self.input_buffer)}")
+        # No longer need _filter_old_data() here - filtering is done in add_input()
+        logger.info(f"Buffer size: {len(self.input_buffer)}")
 
         self.state = "GENERATING"
 
@@ -105,12 +104,20 @@ class BIController:
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])
-        timestamp = time.time()
         lang = self.config.get("common", {}).get("lang", "ja")
+
+        # Use the newest timestamp from buffer (to reflect data freshness)
+        if self.input_buffer:
+            newest_timestamp = max(data.timestamp for data in self.input_buffer)
+            logger.debug(f"Using newest timestamp from buffer: {newest_timestamp}")
+        else:
+            # Fallback: use current time if buffer is empty (should not happen in normal operation)
+            newest_timestamp = time.time()
+            logger.warning("Empty buffer in output phase, using current timestamp")
 
         try:
             self.osc_client.send_to_all_targets(
-                targets, "/bi/input", timestamp, self.generated_text, "BI", lang  # source_type
+                targets, "/bi/input", newest_timestamp, self.generated_text, "BI", lang  # source_type
             )
         except Exception as e:
             logger.error(f"Error sending to targets: {e}")
@@ -132,26 +139,29 @@ class BIController:
         await asyncio.sleep(rest_duration)
         self.state = "RECEIVING"
 
-    def _filter_old_data(self):
-        """Filter out old data based on timestamp"""
-        current_time = time.time()
-        max_age = self.config.get("cycle", {}).get("max_data_age", 60.0)
-
-        # Filter by age
-        self.input_buffer = [data for data in self.input_buffer if (current_time - data.timestamp) < max_age]
-
-        # Filter by device type (2nd_BI ignores human input)
-        if self.device_type == "2nd_BI":
-            self.input_buffer = [data for data in self.input_buffer if data.source_type == "BI"]
-            logger.debug("Filtered human inputs (2nd_BI mode)")
-
     def _concatenate_inputs(self) -> str:
         """Concatenate input texts in chronological order"""
         sorted_data = sorted(self.input_buffer, key=lambda x: x.timestamp)
         return "".join([data.text for data in sorted_data])
 
     def add_input(self, timestamp: float, text: str, source_type: str, lang: str):
-        """Add input data to buffer"""
+        """Add input data to buffer with immediate filtering"""
+        current_time = time.time()
+        max_age = self.config.get("cycle", {}).get("max_data_age", 60.0)
+
+        # Check timestamp immediately - reject old data
+        if (current_time - timestamp) > max_age:
+            logger.warning(
+                f"Rejected old data: timestamp={timestamp}, age={current_time - timestamp:.2f}s, "
+                f"source={source_type}, text='{text[:20]}...'"
+            )
+            return
+
+        # Filter by device type (2nd_BI ignores human input)
+        if self.device_type == "2nd_BI" and source_type == "HUMAN":
+            logger.debug(f"Filtered human input (2nd_BI mode): '{text[:20]}...'")
+            return
+
         data = BIInputData(timestamp=timestamp, text=text, source_type=source_type, lang=lang)
         self.input_buffer.append(data)
         logger.info(f"Added input: {source_type} '{text[:20]}...' " f"(buffer size: {len(self.input_buffer)})")
