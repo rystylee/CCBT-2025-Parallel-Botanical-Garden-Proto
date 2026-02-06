@@ -38,7 +38,6 @@ class OscServer:
 class OscClient:
     def __init__(self, config: dict):
         self.config = config
-        self.port = config.get("osc").get("send_port")
 
     def send_to_target(self, target: dict, address: str, *args):
         """Send OSC message to a specific target device"""

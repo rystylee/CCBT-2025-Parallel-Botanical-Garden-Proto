@@ -169,7 +169,7 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システムを構
   - `rest_duration`: 休息期間（秒）
   - `max_data_age`: データ有効期限（秒）
 - **targets**: 送信先デバイスリスト `[{host, port}, ...]`
-- **osc**: 送受信ポート
+- **osc**: 受信ポート設定
 - **common**: 言語設定
 - **stack_flow_llm**: LLM設定（max_tokens: 64）
 - **stack_flow_tts**: TTS設定

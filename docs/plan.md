@@ -106,8 +106,7 @@ class BIInputData:
     {"host": "192.168.1.102", "port": 8000}
   ],
   "osc": {
-    "receive_port": 8000,
-    "send_port": 8000
+    "receive_port": 8000
   },
   "stack_flow_llm": {
     "max_tokens": 64

@@ -180,7 +180,6 @@ M5Stack LLM630 Compute Kit上で動作する**分散型Botanical Intelligence (B
 
   "osc": {
     "receive_port": 8000,
-    "send_port": 8000,
     "client_address": ["10.0.0.2"]
   },
 
@@ -224,7 +223,7 @@ M5Stack LLM630 Compute Kit上で動作する**分散型Botanical Intelligence (B
 
 **OSC設定**:
 - `osc.receive_port`: OSC受信ポート
-- `osc.send_port`: OSC送信ポート
+  - 送信ポートは `targets` の各デバイスで個別に指定
 
 **共通設定**:
 - `common.lang`: デフォルト言語（`ja`, `en`, `zh`, `fr`）
