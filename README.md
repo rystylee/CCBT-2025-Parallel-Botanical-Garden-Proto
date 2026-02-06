@@ -198,8 +198,8 @@ INFO: OSC Server started on 0.0.0.0:8000
 ### バックグラウンド起動（tmux使用）
 
 ```bash
-# tmuxセッションを開始
-tmux new -s ccbt-llm
+# tmuxセッションを開始（-u: UTF-8対応）
+tmux new -u -s ccbt-llm
 
 # アプリケーションを起動
 uv run python main.py
@@ -207,7 +207,7 @@ uv run python main.py
 # デタッチ: Ctrl+b → d
 
 # セッションに再接続
-tmux attach -t ccbt-llm
+tmux attach -u -t ccbt-llm
 ```
 
 ---
