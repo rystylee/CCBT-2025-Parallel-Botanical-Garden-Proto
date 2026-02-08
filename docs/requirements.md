@@ -155,8 +155,8 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 ### Pythonライブラリ
 - loguru (ロギング)
 - python-osc (OSCプロトコル)
-- argostranslate (オフライン翻訳)
-- googletrans (Google翻訳API)
+- argostranslate (オフライン翻訳) ※現在未使用、将来的なオプション機能として保持
+- googletrans (Google翻訳API) ※現在未使用、将来的なオプション機能として保持
 
 ### StackFlowモデル
 - llm-model-qwen2.5-0.5B-prefill-20e
@@ -196,12 +196,3 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 - LLM出力は最大64トークン
 - TTS音声はリアルタイム再生のみ（ファイル保存なし）
 - OSCプロトコルのみ対応
-
----
-
-## 8. 参考資料
-
-- M5Stack LLM Compute Kit ドキュメント
-- StackFlow API仕様書
-- OSC 1.0 プロトコル仕様
-- MeloTTS モデルドキュメント
