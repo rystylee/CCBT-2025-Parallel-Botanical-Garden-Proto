@@ -85,8 +85,12 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
 │   └── utils.py            # LLM/TTS設定
 ├── stackflow/              # StackFlow通信
 │   └── utils.py
+├── utils/                  # ユーティリティ
+│   ├── __init__.py
+│   └── network_config.py   # ネットワーク設定CSV読み込み
 ├── config/                 # 設定ファイル
-│   └── config.json
+│   ├── config.json
+│   └── networks.csv
 ├── tests/                  # テストスクリプト
 │   ├── test_bi.py
 │   └── test_multi_target.py
@@ -98,18 +102,21 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
 
 ## 設定ファイル
 
-[config/config.json](config/config.json) の主要セクション：
+### config/config.json
+
+デバイス固有の設定：
 
 ```json
 {
+  "network": {
+    "device_id": 1,                    // 自分のデバイスID
+    "csv_path": "config/networks.csv"  // ネットワーク設定CSVのパス
+  },
   "cycle": {
     "receive_duration": 3.0,   // 入力受付期間（秒）
     "rest_duration": 1.0,      // 休息期間（秒）
     "max_data_age": 60.0       // データ有効期限（秒）
   },
-  "targets": [
-    {"host": "192.168.1.101", "port": 8000}  // 送信先BIデバイス
-  ],
   "osc": {
     "receive_port": 8000
   },
@@ -117,19 +124,38 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
     "lang": "ja"  // "ja", "en", "zh", "fr"
   },
   "stack_flow_llm": {
-    "max_tokens": 64
+    "max_tokens": 128
   }
 }
 ```
 
+### config/networks.csv
+
+全デバイスのネットワーク情報を一元管理：
+
+```csv
+ID,IP,To
+1,10.0.0.1,"2,5"
+2,10.0.0.2,"3,6"
+3,10.0.0.3,"4,7"
+...
+100,10.0.0.100,"91,94"
+```
+
+- **ID**: デバイスID（1-100）
+- **IP**: デバイスのIPアドレス（ルール: ID X → 10.0.0.X）
+- **To**: 送信先デバイスIDのカンマ区切りリスト
+
 ### 主な設定項目
 
+- **network.device_id**: 自分のデバイスID（networks.csvから情報を取得）
 - **cycle**: サイクル設定
   - `receive_duration`: 入力受付期間
   - `rest_duration`: 休息期間
   - `max_data_age`: データ有効期限（古いデータは自動破棄）
-- **targets**: 送信先BIデバイスのリスト
 - **common.lang**: デフォルト言語（日本語、英語、中国語、フランス語）
+
+**設定変更方法**: デバイスIDを変更するだけで、IPアドレスと送信先が自動的に解決されます
 
 ---
 
@@ -164,7 +190,7 @@ chmod +x scripts/install.sh
 
 # 6. 設定ファイルを編集
 vi config/config.json
-# IPアドレスとターゲットデバイスを設定
+# device_id を設定（IPアドレスと送信先はnetworks.csvから自動取得）
 ```
 
 ---

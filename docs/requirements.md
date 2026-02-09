@@ -124,18 +124,21 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 ## 4. 設定ファイル構造
 
-`config/config.json` の主要セクション：
+### 4.1 config/config.json
+
+デバイス固有の設定を記述：
 
 ```json
 {
+  "network": {
+    "device_id": 1,                    // 自分のデバイスID
+    "csv_path": "config/networks.csv"  // ネットワーク設定CSVのパス
+  },
   "cycle": {
     "receive_duration": 3.0,  // 入力受付期間（秒）
     "rest_duration": 1.0,     // 休息期間（秒）
     "max_data_age": 60.0      // データ有効期限（秒）
   },
-  "targets": [
-    {"host": "192.168.1.101", "port": 8000}
-  ],
   "osc": {
     "receive_port": 8000
   },
@@ -147,6 +150,27 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
   }
 }
 ```
+
+### 4.2 config/networks.csv
+
+全デバイスのネットワーク情報を一元管理：
+
+```csv
+ID,IP,To
+1,10.0.0.1,"2,5"
+2,10.0.0.2,"3,6"
+3,10.0.0.3,"4,7"
+...
+```
+
+- **ID**: デバイスID
+- **IP**: デバイスのIPアドレス（ルール: ID X → 10.0.0.X）
+- **To**: 送信先デバイスIDのカンマ区切りリスト
+
+**設定の仕組み**:
+1. config.jsonで自分のdevice_idを指定
+2. 起動時にnetworks.csvから該当IDの情報を読み込み
+3. IPアドレスと送信先が自動的に解決される
 
 ---
 
