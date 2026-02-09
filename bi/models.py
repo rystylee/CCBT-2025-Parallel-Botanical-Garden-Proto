@@ -7,5 +7,5 @@ class BIInputData:
 
     timestamp: float
     text: str
-    source_type: str  # "human" or "BI"
+    source_type: str  # "HUMAN" or "BI"
     lang: str

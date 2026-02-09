@@ -96,7 +96,7 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 ### 3.1 LLM推論
 - **モデル**: qwen2.5-0.5B-prefill-20e
-- **出力**: 最大64トークン（通常2~3トークン）
+- **出力**: 最大128トークン（通常2~3トークン）
 - **プロンプト**: 詩的な短文生成に特化
 - **Soft Prefix**: bf16形式のプリフィックスチューニング対応
 
@@ -143,7 +143,7 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
     "lang": "ja"  // "en", "zh", "fr"
   },
   "stack_flow_llm": {
-    "max_tokens": 64
+    "max_tokens": 128
   }
 }
 ```
