@@ -122,6 +122,19 @@ class BIController:
         except Exception as e:
             logger.error(f"Error sending to targets: {e}")
 
+        # Send generated text to Mixer PC
+        mixer_config = self.config.get("mixer")
+        if mixer_config:
+            try:
+                mixer_target = {
+                    "host": mixer_config.get("host"),
+                    "port": mixer_config.get("port"),
+                }
+                self.osc_client.send_to_target(mixer_target, "/mixer", self.generated_text)
+                logger.info(f"Sent to Mixer PC: {self.generated_text}")
+            except Exception as e:
+                logger.error(f"Error sending to Mixer PC: {e}")
+
         # Play TTS (all inputs + generated)
         try:
             self.tts_client.speak(self.tts_text)

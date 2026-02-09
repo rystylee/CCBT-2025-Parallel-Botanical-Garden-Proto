@@ -117,8 +117,13 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 **注意**: サイクルはアプリケーション起動時に自動開始されます。
 
 #### 送信
-- `/bi/input` 経由で次のBIデバイスへ生成テキストを送信
-- 設定ファイル（config.json）で送信先を指定
+- **BIデバイス間通信**: `/bi/input` 経由で次のBIデバイスへ生成テキストを送信
+  - 送信先: 設定ファイル（networks.csv）で指定
+  - 送信内容: `timestamp, generated_text, "BI", lang`
+- **Mixer PC送信**: `/mixer` 経由で生成テキストを送信
+  - 送信先: config.json の `mixer` セクションで指定
+  - 送信内容: `generated_text` のみ
+  - 送信タイミング: LLM生成成功時に毎回送信
 
 ---
 
@@ -141,6 +146,10 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
   },
   "osc": {
     "receive_port": 8000
+  },
+  "mixer": {
+    "host": "10.0.0.200",    // Mixer PCのIPアドレス
+    "port": 8000             // Mixer PCのOSCポート
   },
   "common": {
     "lang": "ja"  // "en", "zh", "fr"

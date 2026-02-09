@@ -101,10 +101,12 @@ class BIInputData:
 - [x] `/bi/stop` - サイクル停止
 - [x] `/bi/status` - ステータス取得
 - [x] 自動起動 - アプリケーション起動時にサイクルが自動開始
+- [x] `/mixer` - Mixer PCへの生成テキスト送信
 
 ### 3.3 設定ファイル（✅ 完了）
 - [x] サイクル設定（receive_duration, rest_duration, max_data_age）
-- [x] ターゲットデバイスリスト
+- [x] ターゲットデバイスリスト（networks.csv）
+- [x] Mixer PC設定（host, port）
 
 ### 3.4 データフィルタリング（✅ 完了）
 - [x] タイムスタンプによる古いデータ破棄
