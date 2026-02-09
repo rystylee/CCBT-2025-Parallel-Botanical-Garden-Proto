@@ -22,5 +22,17 @@
     "max_tokens": 128
   },
   "stack_flow_tts": {},
-  "system": {}
+  "system": {},
+  "audio": {
+    "tinyplay_card": 0,
+    "tinyplay_device": 1,
+    "sample_rate": 16000,
+    "channels": 1,
+    "sample_format": "s16",
+    "enable_ffmpeg_convert": true,
+    "enable_rumble_effect": false,
+    "rumble_freq": 50,
+    "rumble_gain": 0.1,
+    "temp_wav_dir": "/tmp"
+  }
 }

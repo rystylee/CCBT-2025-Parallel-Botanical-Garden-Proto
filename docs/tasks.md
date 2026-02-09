@@ -50,7 +50,21 @@ CCBT-2025-Parallel-Botanical-Garden-Proto v2.0の開発タスク管理
 
 ## 2. 進行中のタスク 🔄
 
-現在進行中のタスクはありません。
+### 2.1 TTS音声出力のWAVファイル化（v2.1） - 実装完了、テスト待ち
+**目的**: WAVファイル書き出し→FFmpeg変換（オプション）→tinyplay再生に変更
+
+#### 完了済み
+- [x] `api/tts.py`にWAVファイル生成・変換・再生機能を追加
+- [x] `StackFlowTTSClient.speak_to_file()`メソッドの実装
+- [x] `bi/controller.py`の`_output_phase()`を変更
+- [x] `config/config.json`に`audio`設定を追加
+- [x] `pyproject.toml`に`aiohttp`依存関係を追加
+- [x] テストスクリプト作成（`tests/test_tts_wav_playback.py`）
+
+#### 実機テスト待ち
+- [ ] M5Stack実機での動作確認
+- [ ] パフォーマンス測定（1秒以内に再生開始の目標達成確認）
+- [ ] FFmpegとtinyplayコマンドの動作確認
 
 ---
 
@@ -204,6 +218,7 @@ CCBT-2025-Parallel-Botanical-Garden-Proto v2.0の開発タスク管理
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-02-10 | TTS音声出力のWAVファイル化（v2.1）実装完了 |
 | 2026-02-09 | Mixer PC送信機能の実装完了、ドキュメント更新 |
 | 2026-02-08 | ドキュメント整理、不要な項目を削除 |
 | 2026-02-07 | ドキュメント整理、実装状況に合わせて更新 |

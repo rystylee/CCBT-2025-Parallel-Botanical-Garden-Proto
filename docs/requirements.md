@@ -102,7 +102,10 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 ### 3.2 TTS音声合成
 - **モデル**: MeloTTS (日本語/英語/中国語)
-- **フォーマット**: PCMストリーム
+- **出力方式**: WAVファイル書き出し→tinyplay再生 (v2.1以降)
+- **API**: OpenAI互換API (`http://127.0.0.1:8000/v1`)
+- **フォーマット**: WAV形式（16kHz, mono, s16）
+- **後処理**: FFmpeg変換（オプション）、ランブルエフェクト（オプション）
 - **音量**: デフォルト15%
 
 ### 3.3 OSC通信
@@ -181,6 +184,23 @@ ID,IP,To
 2. 起動時にnetworks.csvから該当IDの情報を読み込み
 3. IPアドレスと送信先が自動的に解決される
 
+### 4.3 音声出力設定（v2.1以降）
+
+config.jsonに音声出力関連の設定を追加：
+
+```json
+"audio": {
+  "tinyplay_card": 0,          // ALSAカード番号
+  "tinyplay_device": 1,        // ALSAデバイス番号
+  "sample_rate": 16000,        // サンプリングレート（Hz）
+  "channels": 1,               // チャンネル数（1: mono, 2: stereo）
+  "sample_format": "s16",      // サンプルフォーマット（s16, s32, etc.）
+  "enable_ffmpeg_convert": true,    // FFmpeg変換の有効/無効
+  "enable_rumble_effect": false,    // ランブルエフェクトの有効/無効
+  "temp_wav_dir": "/tmp"       // 一時ファイル保存先
+}
+```
+
 ---
 
 ## 5. 依存関係
@@ -196,6 +216,10 @@ ID,IP,To
 - llm-model-melotts-ja-jp
 - llm-model-melotts-en-us
 - llm-model-melotts-zh-cn
+
+### システムコマンド（v2.1以降）
+- FFmpeg: WAV音声ファイルの変換（サンプリングレート、チャンネル数、フォーマット変換）
+- tinyplay: ALSA経由での音声ファイル再生
 
 ---
 
@@ -224,8 +248,9 @@ ID,IP,To
 - M5Stack LLM Compute Kitでのみ動作
 - StackFlow APIに依存
 - オフライン動作（翻訳モデルがインストール済みの場合）
+- FFmpeg、tinyplayコマンドが必要（v2.1以降）
 
 ### 機能的制約
 - LLM出力は最大64トークン
-- TTS音声はリアルタイム再生のみ（ファイル保存なし）
+- TTS音声はWAVファイル経由で再生（v2.1以降、ファイル保存可能）
 - OSCプロトコルのみ対応

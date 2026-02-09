@@ -1,16 +1,246 @@
+import asyncio
 import json
+import os
+import tempfile
+from pathlib import Path
 
+import aiohttp
 from loguru import logger
 
 from api.utils import TTS_SETTINGS
 from stackflow.utils import (
     close_tcp_connection,
     create_tcp_connection,
-    exit_session,
     parse_setup_response,
     receive_response,
     send_json,
 )
+
+# ========== Utility Functions for WAV File Generation & Playback ==========
+
+
+async def http_post_json(url: str, json_data: dict, timeout: int = 10) -> dict:
+    """
+    Send HTTP POST request with JSON data.
+
+    Args:
+        url: Target URL
+        json_data: JSON data to send
+        timeout: Request timeout in seconds
+
+    Returns:
+        dict: Response JSON data
+
+    Raises:
+        aiohttp.ClientError: HTTP request failed
+    """
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=json_data, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+            response.raise_for_status()
+            return await response.json()
+
+
+async def tts_generate_wav(text: str, model: str, output_path: str, api_url: str = "http://127.0.0.1:8000/v1") -> None:
+    """
+    Generate WAV file from text using OpenAI-compatible TTS API.
+
+    Args:
+        text: Text to synthesize
+        model: TTS model name (e.g., "melotts-ja-jp")
+        output_path: Output WAV file path
+        api_url: StackFlow OpenAI-compatible API URL
+
+    Raises:
+        aiohttp.ClientError: API request failed
+        IOError: File write failed
+    """
+    url = f"{api_url}/audio/speech"
+    request_data = {
+        "model": model,
+        "input": text,
+        "voice": "default",
+        "response_format": "wav",
+    }
+
+    logger.debug(f"TTS API request: {url}")
+    logger.debug(f"Request data: {request_data}")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=request_data, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            response.raise_for_status()
+
+            # Write WAV file
+            with open(output_path, "wb") as f:
+                f.write(await response.read())
+
+    logger.info(f"WAV file generated: {output_path}")
+
+
+async def ffmpeg_convert_for_tinyplay(
+    input_path: str,
+    output_path: str,
+    sample_rate: int = 16000,
+    channels: int = 1,
+    sample_format: str = "s16",
+) -> None:
+    """
+    Convert WAV file for tinyplay compatibility using FFmpeg.
+
+    Args:
+        input_path: Input WAV file path
+        output_path: Output WAV file path
+        sample_rate: Target sample rate (Hz)
+        channels: Target channel count (1: mono, 2: stereo)
+        sample_format: Target sample format (s16, s32, etc.)
+
+    Raises:
+        RuntimeError: FFmpeg conversion failed
+    """
+    # Map sample format to FFmpeg format
+    format_map = {
+        "s16": "s16le",
+        "s32": "s32le",
+    }
+    ffmpeg_format = format_map.get(sample_format, "s16le")
+
+    cmd = [
+        "ffmpeg",
+        "-i",
+        input_path,
+        "-ar",
+        str(sample_rate),
+        "-ac",
+        str(channels),
+        "-sample_fmt",
+        ffmpeg_format,
+        "-y",  # Overwrite output file
+        output_path,
+    ]
+
+    logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode("utf-8", errors="replace")
+        logger.error(f"FFmpeg conversion failed: {error_msg}")
+        raise RuntimeError(f"FFmpeg conversion failed: {error_msg}")
+
+    logger.info(f"FFmpeg conversion completed: {output_path}")
+
+
+async def ffmpeg_convert_for_tinyplay_with_rumble(
+    input_path: str,
+    output_path: str,
+    sample_rate: int = 16000,
+    channels: int = 1,
+    sample_format: str = "s16",
+    rumble_freq: int = 50,
+    rumble_gain: float = 0.1,
+) -> None:
+    """
+    Convert WAV file with rumble effect using FFmpeg.
+
+    Args:
+        input_path: Input WAV file path
+        output_path: Output WAV file path
+        sample_rate: Target sample rate (Hz)
+        channels: Target channel count (1: mono, 2: stereo)
+        sample_format: Target sample format (s16, s32, etc.)
+        rumble_freq: Rumble frequency (Hz)
+        rumble_gain: Rumble gain (0.0-1.0)
+
+    Raises:
+        RuntimeError: FFmpeg conversion failed
+    """
+    format_map = {
+        "s16": "s16le",
+        "s32": "s32le",
+    }
+    ffmpeg_format = format_map.get(sample_format, "s16le")
+
+    # Apply bass boost (rumble effect)
+    filter_complex = f"bass=g={rumble_gain}:f={rumble_freq}:w=0.5"
+
+    cmd = [
+        "ffmpeg",
+        "-i",
+        input_path,
+        "-ar",
+        str(sample_rate),
+        "-ac",
+        str(channels),
+        "-sample_fmt",
+        ffmpeg_format,
+        "-af",
+        filter_complex,
+        "-y",
+        output_path,
+    ]
+
+    logger.debug(f"FFmpeg command (with rumble): {' '.join(cmd)}")
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode("utf-8", errors="replace")
+        logger.error(f"FFmpeg conversion with rumble failed: {error_msg}")
+        raise RuntimeError(f"FFmpeg conversion with rumble failed: {error_msg}")
+
+    logger.info(f"FFmpeg conversion with rumble completed: {output_path}")
+
+
+async def tinyplay_play(wav_path: str, card: int = 0, device: int = 1, timeout: int = 30) -> None:
+    """
+    Play WAV file using tinyplay command.
+
+    Args:
+        wav_path: WAV file path to play
+        card: ALSA card number
+        device: ALSA device number
+        timeout: Playback timeout in seconds
+
+    Raises:
+        RuntimeError: tinyplay playback failed
+    """
+    cmd = ["tinyplay", wav_path, "-D", str(card), "-d", str(device)]
+
+    logger.debug(f"tinyplay command: {' '.join(cmd)}")
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        logger.error(f"tinyplay playback timeout ({timeout}s)")
+        raise RuntimeError(f"tinyplay playback timeout ({timeout}s)")
+
+    if process.returncode != 0:
+        error_msg = stderr.decode("utf-8", errors="replace")
+        logger.error(f"tinyplay playback failed: {error_msg}")
+        raise RuntimeError(f"tinyplay playback failed: {error_msg}")
+
+    logger.info(f"tinyplay playback completed: {wav_path}")
+
+
+# ==========================================================================
 
 
 class StackFlowTTSClient:
@@ -38,6 +268,15 @@ class StackFlowTTSClient:
         logger.info(f"model: {self.model}")
 
     def speak(self, text: str) -> str:
+        """
+        Speak text directly through speaker (legacy method).
+
+        Args:
+            text: Text to synthesize
+
+        Returns:
+            str: Response from StackFlow
+        """
         inference_date = self._create_inference_data(text)
         send_json(self.sock, inference_date)
         response = receive_response(self.sock, timeout=10.0)
@@ -47,6 +286,88 @@ class StackFlowTTSClient:
         # send_json(self.sock, reset_date)
         # response = receive_response(self.sock)
         # logger.debug(f"reset response: {response}")
+
+    async def speak_to_file(self, text: str) -> None:
+        """
+        Generate WAV file from text and play it using tinyplay.
+
+        This method uses OpenAI-compatible TTS API to generate WAV file,
+        optionally converts it with FFmpeg, and plays it using tinyplay command.
+
+        Args:
+            text: Text to synthesize
+
+        Raises:
+            Exception: WAV generation, conversion, or playback failed
+        """
+        audio_config = self.config.get("audio", {})
+
+        # Get configuration
+        temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
+        enable_ffmpeg = audio_config.get("enable_ffmpeg_convert", True)
+        enable_rumble = audio_config.get("enable_rumble_effect", False)
+        sample_rate = audio_config.get("sample_rate", 16000)
+        channels = audio_config.get("channels", 1)
+        sample_format = audio_config.get("sample_format", "s16")
+        tinyplay_card = audio_config.get("tinyplay_card", 0)
+        tinyplay_device = audio_config.get("tinyplay_device", 1)
+
+        # Generate temporary file paths
+        timestamp = asyncio.get_event_loop().time()
+        raw_wav_path = os.path.join(temp_wav_dir, f"tts_raw_{timestamp}.wav")
+        final_wav_path = os.path.join(temp_wav_dir, f"tts_final_{timestamp}.wav")
+
+        try:
+            # Step 1: Generate WAV file from TTS API
+            logger.info(f"Generating WAV file: {text[:50]}...")
+            await tts_generate_wav(text, self.model, raw_wav_path)
+
+            # Step 2: Convert WAV file (optional)
+            if enable_ffmpeg:
+                logger.info("Converting WAV file with FFmpeg...")
+                if enable_rumble:
+                    rumble_freq = audio_config.get("rumble_freq", 50)
+                    rumble_gain = audio_config.get("rumble_gain", 0.1)
+                    await ffmpeg_convert_for_tinyplay_with_rumble(
+                        raw_wav_path,
+                        final_wav_path,
+                        sample_rate,
+                        channels,
+                        sample_format,
+                        rumble_freq,
+                        rumble_gain,
+                    )
+                else:
+                    await ffmpeg_convert_for_tinyplay(
+                        raw_wav_path,
+                        final_wav_path,
+                        sample_rate,
+                        channels,
+                        sample_format,
+                    )
+                playback_path = final_wav_path
+            else:
+                playback_path = raw_wav_path
+
+            # Step 3: Play WAV file using tinyplay
+            logger.info("Playing WAV file with tinyplay...")
+            await tinyplay_play(playback_path, tinyplay_card, tinyplay_device)
+
+            logger.info("TTS playback completed successfully")
+
+        except Exception as e:
+            logger.error(f"TTS speak_to_file failed: {e}")
+            raise
+
+        finally:
+            # Step 4: Cleanup temporary files
+            for path in [raw_wav_path, final_wav_path]:
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                        logger.debug(f"Removed temporary file: {path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove temporary file {path}: {e}")
 
     def _init(self):
         logger.info("Setup TTS...")
