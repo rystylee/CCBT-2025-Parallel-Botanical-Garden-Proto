@@ -30,7 +30,7 @@
     "channels": 1,
     "sample_format": "s16",
     "enable_ffmpeg_convert": true,
-    "enable_rumble_effect": false,
+    "enable_rumble_effect": true,
     "temp_wav_dir": "./tmp",
     "rumble_pitch_steps": -16.0,
     "rumble_sub_oct_mix": 0.55,
