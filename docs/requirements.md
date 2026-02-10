@@ -190,14 +190,22 @@ config.jsonに音声出力関連の設定を追加：
 
 ```json
 "audio": {
-  "tinyplay_card": 0,          // ALSAカード番号
-  "tinyplay_device": 1,        // ALSAデバイス番号
-  "sample_rate": 16000,        // サンプリングレート（Hz）
-  "channels": 1,               // チャンネル数（1: mono, 2: stereo）
-  "sample_format": "s16",      // サンプルフォーマット（s16, s32, etc.）
-  "enable_ffmpeg_convert": true,    // FFmpeg変換の有効/無効
-  "enable_rumble_effect": false,    // ランブルエフェクトの有効/無効
-  "temp_wav_dir": "/tmp"       // 一時ファイル保存先
+  "tinyplay_card": 0,              // ALSAカード番号
+  "tinyplay_device": 1,            // ALSAデバイス番号
+  "sample_rate": 16000,            // サンプリングレート（Hz）
+  "channels": 1,                   // チャンネル数（1: mono, 2: stereo）
+  "sample_format": "s16",          // サンプルフォーマット（s16, s32, etc.）
+  "enable_ffmpeg_convert": true,   // FFmpeg変換の有効/無効
+  "enable_rumble_effect": false,   // ランブルエフェクトの有効/無効
+  "temp_wav_dir": "./tmp",         // 一時ファイル保存先
+
+  // 高度なランブルエフェクト設定（v2.2以降）
+  "rumble_pitch_steps": -16.0,     // ピッチシフト（半音単位、-16 ≈ -1.3オクターブ）
+  "rumble_sub_oct_mix": 0.55,      // サブオクターブレイヤーのミックス量（0..1）
+  "rumble_mix": 0.25,              // シンセティックランブルノイズのミックス量（0..1）
+  "rumble_base_hz": 55.0,          // ランブル生成のベース周波数（Hz）
+  "rumble_drive": 0.55,            // ディストーションドライブ量（0..1）
+  "rumble_xover_hz": 280.0         // クロスオーバー周波数（Hz）
 }
 ```
 
@@ -208,6 +216,10 @@ config.jsonに音声出力関連の設定を追加：
 ### Pythonライブラリ
 - loguru (ロギング)
 - python-osc (OSCプロトコル)
+- openai (OpenAI互換TTS API)
+- numpy (数値演算、信号処理)
+- scipy (科学計算、フィルタリング)
+- soundfile (音声ファイルI/O)
 - argostranslate (オフライン翻訳) ※現在未使用、将来的なオプション機能として保持
 - googletrans (Google翻訳API) ※現在未使用、将来的なオプション機能として保持
 
