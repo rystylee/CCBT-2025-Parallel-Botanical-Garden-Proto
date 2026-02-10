@@ -33,6 +33,6 @@
     "enable_rumble_effect": false,
     "rumble_freq": 50,
     "rumble_gain": 0.1,
-    "temp_wav_dir": "/tmp"
+    "temp_wav_dir": "./tmp"
   }
 }
