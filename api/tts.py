@@ -312,6 +312,10 @@ class StackFlowTTSClient:
         tinyplay_card = audio_config.get("tinyplay_card", 0)
         tinyplay_device = audio_config.get("tinyplay_device", 1)
 
+        # Ensure temp directory exists
+        os.makedirs(temp_wav_dir, exist_ok=True)
+        logger.debug(f"Using temp directory: {temp_wav_dir}")
+
         # Generate temporary file paths
         timestamp = asyncio.get_event_loop().time()
         raw_wav_path = os.path.join(temp_wav_dir, f"tts_raw_{timestamp}.wav")
