@@ -1,8 +1,6 @@
 import json
 
-import argostranslate.package
 import argostranslate.translate
-from googletrans import Translator
 from loguru import logger
 
 from api.utils import LLM_SETTINGS
@@ -23,8 +21,6 @@ class StackFlowLLMClient:
 
         self.sock = create_tcp_connection("localhost", 10001)
         self.llm_work_id = self._init()
-
-        self.translator = Translator()
 
     def __del__(self):
         deinit_data = self._create_deinit_data()
@@ -141,8 +137,6 @@ class StackFlowLLMClient:
 
     async def _translate(self, query: str, lang: str) -> str:
         try:
-            # result = await self.translator.translate(query, dest=self.lang)
-            # return result.text
             result = argostranslate.translate.translate(query, from_code=lang, to_code=self.lang)
             return result
         except Exception as e:

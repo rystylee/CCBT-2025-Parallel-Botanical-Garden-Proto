@@ -1,5 +1,4 @@
 import asyncio
-from typing import List
 
 from loguru import logger
 from pythonosc import osc_message_builder
@@ -31,7 +30,7 @@ class OscServer:
         logger.info(f"Serving on ip: {self.ip_address} port: {self.port}")
         self.transport, protocol = await server.create_serve_endpoint()
 
-    def _print_message(self, address: str, *args: List[str]):
+    def _print_message(self, address: str, *args):
         logger.debug(f"address: {address}, args: {args}")
 
 

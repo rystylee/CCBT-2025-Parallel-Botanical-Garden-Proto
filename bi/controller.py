@@ -137,7 +137,7 @@ class BIController:
 
         # Play TTS (all inputs + generated)
         try:
-            await self.tts_client.speak_to_file(self.tts_text)
+            self.tts_client.speak(self.tts_text)
         except Exception as e:
             logger.error(f"Error in TTS: {e}")
 

@@ -1,7 +1,6 @@
-import asyncio
 import json
 import os
-import tempfile
+import time
 from pathlib import Path
 
 from loguru import logger
@@ -288,11 +287,6 @@ class StackFlowTTSClient:
         response = receive_response(self.sock, timeout=10.0)
         logger.debug(f"tts response: {response}")
 
-        # reset_date = self._create_reset_data()
-        # send_json(self.sock, reset_date)
-        # response = receive_response(self.sock)
-        # logger.debug(f"reset response: {response}")
-
     async def speak_to_file(self, text: str) -> None:
         """
         Generate WAV file from text and play it using tinyplay.
@@ -323,7 +317,7 @@ class StackFlowTTSClient:
         logger.debug(f"Using temp directory: {temp_wav_dir}")
 
         # Generate temporary file paths
-        timestamp = asyncio.get_event_loop().time()
+        timestamp = time.time()
         raw_wav_path = os.path.join(temp_wav_dir, f"tts_raw_{timestamp}.wav")
         final_wav_path = os.path.join(temp_wav_dir, f"tts_final_{timestamp}.wav")
 
