@@ -5,7 +5,8 @@ import struct
 from loguru import logger
 
 P = 1  # num _prefix_token
-H = 896  # tokens_embed_size
+# H = 896  # tokens_embed_size
+H = 1536  # tokens_embed_size
 VALS = [0.0, 1e-4, 1e-3, 1e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1.0, 2.0]
 
 

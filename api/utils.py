@@ -10,7 +10,8 @@ LLM_SETTINGS["en"] = {
 }
 LLM_SETTINGS["ja"] = {
     # "model": "TinySwallow-1.5B",
-    "model": "qwen2.5-0.5B-prefill-20e",
+    # "model": "qwen2.5-0.5B-prefill-20e",
+    "model": "qwen2.5-1.5B-ax630c",
     "system_prompt": "あなたは詩人です。常に短い詩を日本語で生成します。",
     "translation_prompt": ("入力テキストを日本語に翻訳してください。" "翻訳した結果のみを出力してください。input: "),
     "instruction_prompt": (
