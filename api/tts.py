@@ -4,8 +4,8 @@ import os
 import tempfile
 from pathlib import Path
 
-import aiohttp
 from loguru import logger
+from openai import OpenAI
 
 from api.utils import TTS_SETTINGS
 from stackflow.utils import (
@@ -19,28 +19,7 @@ from stackflow.utils import (
 # ========== Utility Functions for WAV File Generation & Playback ==========
 
 
-async def http_post_json(url: str, json_data: dict, timeout: int = 10) -> dict:
-    """
-    Send HTTP POST request with JSON data.
-
-    Args:
-        url: Target URL
-        json_data: JSON data to send
-        timeout: Request timeout in seconds
-
-    Returns:
-        dict: Response JSON data
-
-    Raises:
-        aiohttp.ClientError: HTTP request failed
-    """
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=json_data, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
-            response.raise_for_status()
-            return await response.json()
-
-
-async def tts_generate_wav(text: str, model: str, output_path: str, api_url: str = "http://127.0.0.1:8000/v1") -> None:
+def tts_generate_wav(text: str, model: str, output_path: str, api_url: str = "http://127.0.0.1:8000/v1") -> None:
     """
     Generate WAV file from text using OpenAI-compatible TTS API.
 
@@ -51,27 +30,22 @@ async def tts_generate_wav(text: str, model: str, output_path: str, api_url: str
         api_url: StackFlow OpenAI-compatible API URL
 
     Raises:
-        aiohttp.ClientError: API request failed
-        IOError: File write failed
+        Exception: API request failed or file write failed
     """
-    url = f"{api_url}/audio/speech"
-    request_data = {
-        "model": model,
-        "input": text,
-        "voice": "default",
-        "response_format": "wav",
-    }
+    logger.debug(f"TTS API request to: {api_url}")
+    logger.debug(f"Model: {model}, Input: {text[:50]}...")
 
-    logger.debug(f"TTS API request: {url}")
-    logger.debug(f"Request data: {request_data}")
+    # Create OpenAI client with custom base_url
+    client = OpenAI(api_key="sk-", base_url=api_url)
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=request_data, timeout=aiohttp.ClientTimeout(total=10)) as response:
-            response.raise_for_status()
-
-            # Write WAV file
-            with open(output_path, "wb") as f:
-                f.write(await response.read())
+    # Generate speech using streaming response
+    with client.audio.speech.with_streaming_response.create(
+        model=model,
+        response_format="wav",
+        voice="",
+        input=text,
+    ) as response:
+        response.stream_to_file(output_path)
 
     logger.info(f"WAV file generated: {output_path}")
 
@@ -324,7 +298,7 @@ class StackFlowTTSClient:
         try:
             # Step 1: Generate WAV file from TTS API
             logger.info(f"Generating WAV file: {text[:50]}...")
-            await tts_generate_wav(text, self.model, raw_wav_path)
+            await asyncio.to_thread(tts_generate_wav, text, self.model, raw_wav_path)
 
             # Step 2: Convert WAV file (optional)
             if enable_ffmpeg:
