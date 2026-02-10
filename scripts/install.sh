@@ -10,6 +10,7 @@ apt install curl -y
 apt install unzip -y
 apt install tmux -y
 apt install ffmpeg -y
+apt install i2c-tools -y
 
 # uv (python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
