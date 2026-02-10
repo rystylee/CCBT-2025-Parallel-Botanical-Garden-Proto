@@ -9,6 +9,7 @@ apt install git -y
 apt install curl -y
 apt install unzip -y
 apt install tmux -y
+apt install ffmpeg -y
 
 # uv (python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -21,3 +22,6 @@ apt install llm-model-qwen2.5-1.5b-ax630c -y
 apt install llm-model-melotts-zh-cn -y
 apt install llm-model-melotts-en-us -y
 apt install llm-model-melotts-ja-jp -y
+
+# openai
+apt install llm-openai-api -y
