@@ -62,8 +62,8 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
      ┌─────────────┐
      │   OUTPUT    │
      │ ・バッファ確認│
+     │ ・TTS生成   │
      │ ・OSC送信   │
-     │ ・TTS再生   │
      └──────┬──────┘
             ↓
      ┌─────────────┐
@@ -169,17 +169,24 @@ class BIInputData:
 
 #### 6.3.1 処理フロー
 ```
+OUTPUT Phase:
 1. OpenAI互換API経由でWAVファイル生成（/tmp/tts_output.wav）
    ↓
 2. FFmpeg変換（オプション）
    - tinyplay互換フォーマットに変換（sample_rate, channels, sample_format）
    - ランブルエフェクト適用（オプション）
    ↓
-3. tinyplayコマンドで再生
+3. tinyplayコマンドで再生（非同期）
    - カード・デバイス番号指定
    ↓
-4. 一時ファイル削除
+4. OSC送信（TTS生成完了後）
+   - BIデバイス間通信（/bi/input）
+   - Mixer PC送信（/mixer）
+   ↓
+5. 一時ファイル削除
 ```
+
+**重要**: TTS音声生成とtinyplay再生をOSC送信の前に実行することで、音声生成の完了を保証してからネットワーク送信を行います。
 
 #### 6.3.2 実装対象ファイル
 
