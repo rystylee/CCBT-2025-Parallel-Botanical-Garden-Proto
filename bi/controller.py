@@ -107,6 +107,13 @@ class BIController:
             self.state = "RESTING"
             return
 
+        # Play TTS (all inputs + generated)
+        try:
+            # self.tts_client.speak(self.tts_text)
+            await self.tts_client.speak_to_file(self.tts_text)
+        except Exception as e:
+            logger.error(f"Error in TTS: {e}")
+
         # Send generated text to target devices
         targets = self.config.get("targets", [])
         lang = self.config.get("common", {}).get("lang", "ja")
@@ -134,12 +141,6 @@ class BIController:
                 logger.info(f"Sent to Mixer PC: {self.generated_text}")
             except Exception as e:
                 logger.error(f"Error sending to Mixer PC: {e}")
-
-        # Play TTS (all inputs + generated)
-        try:
-            self.tts_client.speak(self.tts_text)
-        except Exception as e:
-            logger.error(f"Error in TTS: {e}")
 
         # Clear buffer
         self.input_buffer.clear()
