@@ -56,29 +56,26 @@ async def async_main():
     app = AppController(config)
     bi = BIController(config)
 
-    bi._generating_phase()
-    print(bi.generated_text)
+    # Register BI-specific handlers
+    def handle_bi_input(_, *args):
+        bi.add_input(args[0], args[1], args[2], args[3])
 
-    # # Register BI-specific handlers
-    # def handle_bi_input(_, *args):
-    #     bi.add_input(args[0], args[1], args[2], args[3])
-    #
-    # def handle_bi_stop(_, *__):
-    #     bi.stop_cycle()
-    #
-    # def handle_bi_status(_, *__):
-    #     logger.info(f"BI Status: {bi.get_status()}")
-    #
-    # app.osc_server.register_handler("/bi/input", handle_bi_input)
-    # app.osc_server.register_handler("/bi/stop", handle_bi_stop)
-    # app.osc_server.register_handler("/bi/status", handle_bi_status)
-    #
-    # # Auto-start BI cycle on startup
-    # logger.info("Auto-starting BI cycle")
-    # asyncio.create_task(bi.start_cycle())
-    #
-    # # Run app
-    # await app.run()
+    def handle_bi_stop(_, *__):
+        bi.stop_cycle()
+
+    def handle_bi_status(_, *__):
+        logger.info(f"BI Status: {bi.get_status()}")
+
+    app.osc_server.register_handler("/bi/input", handle_bi_input)
+    app.osc_server.register_handler("/bi/stop", handle_bi_stop)
+    app.osc_server.register_handler("/bi/status", handle_bi_status)
+
+    # Auto-start BI cycle on startup
+    logger.info("Auto-starting BI cycle")
+    asyncio.create_task(bi.start_cycle())
+
+    # Run app
+    await app.run()
 
 
 def main():
