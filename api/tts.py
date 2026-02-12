@@ -70,8 +70,8 @@ def tts_generate_wav(text: str, model: str, output_path: str, api_url: str = "ht
 def ffmpeg_convert_for_tinyplay(
     input_path: str,
     output_path: str,
-    sample_rate: int = 16000,
-    channels: int = 1,
+    sample_rate: int = 32000,
+    channels: int = 2,
     sample_format: str = "s16",
     quiet: bool = True,
 ) -> None:
@@ -119,8 +119,8 @@ def ffmpeg_convert_for_tinyplay(
 def ffmpeg_convert_for_tinyplay_with_rumble(
     input_path: str,
     output_path: str,
-    sample_rate: int = 16000,
-    channels: int = 1,
+    sample_rate: int = 48000,
+    channels: int = 2,
     sample_format: str = "s16",
     pitch_steps: float = -16.0,
     sub_oct_mix: float = 0.55,
@@ -324,8 +324,8 @@ class StackFlowTTSClient:
         temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
         enable_ffmpeg = audio_config.get("enable_ffmpeg_convert", True)
         enable_rumble = audio_config.get("enable_rumble_effect", False)
-        sample_rate = audio_config.get("sample_rate", 16000)
-        channels = audio_config.get("channels", 1)
+        sample_rate = audio_config.get("sample_rate", 48000)
+        channels = audio_config.get("channels", 2)
         sample_format = audio_config.get("sample_format", "s16")
         tinyplay_card = audio_config.get("tinyplay_card", 0)
         tinyplay_device = audio_config.get("tinyplay_device", 1)
@@ -373,7 +373,7 @@ class StackFlowTTSClient:
                     ffmpeg_convert_for_tinyplay(
                         raw_wav_path,
                         final_wav_path,
-                        sample_rate,
+                        32000,
                         channels,
                         sample_format,
                     )

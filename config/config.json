@@ -26,8 +26,8 @@
   "audio": {
     "tinyplay_card": 0,
     "tinyplay_device": 1,
-    "sample_rate": 16000,
-    "channels": 1,
+    "sample_rate": 48000,
+    "channels": 2,
     "sample_format": "s16",
     "enable_ffmpeg_convert": true,
     "enable_rumble_effect": true,
