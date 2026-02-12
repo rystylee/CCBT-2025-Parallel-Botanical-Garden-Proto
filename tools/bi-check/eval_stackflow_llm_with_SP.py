@@ -72,10 +72,10 @@ class BIController_TEST:
             raise ValueError("sample_text is empty")
 
         effective_lang = lang or self.config.get("common", {}).get("lang", "ja")
-        #effective_sp_b64 = soft_prefix_b64 or make_random_soft_prefix_b64()
-        v = random.choice(VALS)
-        logger.info(f"Selected soft prefix value: {v}")
-        effective_sp_b64 = make_soft_prefix_b64_constant(P, H, v)
+        effective_sp_b64 = soft_prefix_b64 or make_random_soft_prefix_b64()
+        # v = random.choice(VALS)
+        # logger.info(f"Selected soft prefix value: {v}")
+        # effective_sp_b64 = make_soft_prefix_b64_constant(P, H, v)
 
         logger.info("=== BIController_TEST.generate_sample ===")
         logger.info(f"lang={effective_lang}, soft_prefix_len={soft_prefix_len}")
