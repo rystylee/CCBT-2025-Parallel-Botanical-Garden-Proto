@@ -1,1 +1,1 @@
-from ...bi import BIController
+from bi import BIController
