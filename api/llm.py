@@ -1,0 +1,151 @@
+import json
+
+import argostranslate.translate
+from loguru import logger
+
+from api.utils import LLM_SETTINGS
+from stackflow.utils import (
+    close_tcp_connection,
+    create_tcp_connection,
+    exit_session,
+    parse_setup_response,
+    receive_response,
+    send_json,
+)
+
+
+class StackFlowLLMClient:
+    def __init__(self, config: dict):
+        self.config = config
+        self.set_params(config)
+
+        self.sock = create_tcp_connection("localhost", 10001)
+        self.llm_work_id = self._init()
+
+    def __del__(self):
+        deinit_data = self._create_deinit_data()
+        exit_session(self.sock, deinit_data)
+        close_tcp_connection(self.sock)
+
+    def set_params(self, config: dict):
+        lang = config.get("common").get("lang")
+        self.lang = lang
+        self.model = LLM_SETTINGS.get(lang).get("model")
+        self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
+        self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
+        self.translation_prompt = LLM_SETTINGS.get(lang).get("translation_prompt")
+        self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
+
+        logger.info("[LLM info]")
+        logger.info(f"lang: {lang}")
+        logger.info(f"model: {self.model}")
+        logger.info(f"max_tokens: {self.max_tokens}")
+        logger.info(f"system_prompt: {self.system_prompt}")
+        logger.info(f"translation_prompt: {self.translation_prompt}")
+        logger.info(f"instruction_prompt: {self.instruction_prompt}")
+        logger.info("")
+
+    async def generate_text(
+        self, query: str, lang: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0
+    ) -> str:
+        logger.info(f"query: {query}")
+        translated_query = await self._translate(query, lang)
+        logger.info(f"translated_query: {translated_query}")
+        prompt = self.instruction_prompt + translated_query
+        logger.info(f"prompt: {prompt}")
+        if soft_prefix_b64 is not None:
+            logger.info(f"soft_prefix_b64: {soft_prefix_b64[:30]}... len: {soft_prefix_len}")
+
+        send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
+        send_json(self.sock, send_data)
+
+        output = ""
+        while True:
+            response = receive_response(self.sock)
+            response_data = json.loads(response)
+
+            data = self._parse_inference_response(response_data)
+            if data is None:
+                break
+
+            delta = data.get("delta")
+            finish = data.get("finish")
+            output += delta
+            logger.debug(delta)
+
+            if finish:
+                break
+
+        output = self._postprocess(output)
+        return output
+
+    def _init(self) -> str:
+        logger.info("Setup LLM...")
+        init_data = self._create_init_data()
+        llm_work_id = self._setup(self.sock, init_data)
+        logger.debug(f"llm_work_id: {llm_work_id}")
+        logger.info("Setup LLM finished.")
+        return llm_work_id
+
+    def _setup(self, sock, init_data) -> str:
+        sent_request_id = init_data["request_id"]
+        send_json(sock, init_data)
+        response = receive_response(sock)
+        response_data = json.loads(response)
+        logger.debug(f"llm response: {response_data}")
+        return parse_setup_response(response_data, sent_request_id)
+
+    def _parse_inference_response(self, response_data: dict) -> str:
+        error = response_data.get("error")
+        if error and error.get("code") != 0:
+            print(f"Error Code: {error['code']}, Message: {error['message']}")
+            return None
+
+        return response_data.get("data")
+
+    def _create_init_data(self) -> dict:
+        return {
+            "request_id": "llm_001",
+            "work_id": "llm",
+            "action": "setup",
+            "object": "llm.setup",
+            "data": {
+                "model": self.model,
+                "response_format": "llm.utf-8.stream",
+                "input": "llm.utf-8.stream",
+                "enoutput": True,
+                "max_token_len": self.max_tokens,
+                "prompt": self.system_prompt,
+            },
+        }
+
+    def _create_deinit_data(self) -> dict:
+        return {"request_id": "llm_exit", "work_id": self.llm_work_id, "action": "exit"}
+
+    def _create_send_data(self, prompt: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0) -> dict:
+        data_obj = {"delta": prompt, "index": 0, "finish": True}
+        if soft_prefix_b64 is not None:
+            data_obj["soft_prefix"] = {"len": int(soft_prefix_len), "data_b64": soft_prefix_b64}
+
+        return {
+            "request_id": "llm_001",
+            "work_id": self.llm_work_id,
+            "action": "inference",
+            "object": "llm.utf-8.stream",
+            "data": data_obj,
+        }
+
+    async def _translate(self, query: str, lang: str) -> str:
+        try:
+            result = argostranslate.translate.translate(query, from_code=lang, to_code=self.lang)
+            return result
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            return query
+
+    def _postprocess(self, text: str) -> str:
+        if ":" in text:
+            idx = text.find(":")
+            return text[idx + 1 :]
+        else:
+            return text

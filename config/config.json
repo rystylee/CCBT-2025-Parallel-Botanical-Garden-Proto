@@ -1,0 +1,42 @@
+{
+  "network": {
+    "device_id": 1,
+    "csv_path": "config/networks.csv"
+  },
+  "cycle": {
+    "receive_duration": 3.0,
+    "rest_duration": 1.0,
+    "max_data_age": 60.0
+  },
+  "osc": {
+    "receive_port": 8000
+  },
+  "mixer": {
+    "host": "10.0.0.200",
+    "port": 8000
+  },
+  "common": {
+    "lang": "ja"
+  },
+  "stack_flow_llm": {
+    "max_tokens": 128
+  },
+  "stack_flow_tts": {},
+  "system": {},
+  "audio": {
+    "tinyplay_card": 0,
+    "tinyplay_device": 1,
+    "sample_rate": 16000,
+    "channels": 1,
+    "sample_format": "s16",
+    "enable_ffmpeg_convert": true,
+    "enable_rumble_effect": true,
+    "temp_wav_dir": "./tmp",
+    "rumble_pitch_steps": -16.0,
+    "rumble_sub_oct_mix": 0.55,
+    "rumble_mix": 0.25,
+    "rumble_base_hz": 55.0,
+    "rumble_drive": 0.55,
+    "rumble_xover_hz": 280.0
+  }
+}

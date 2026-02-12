@@ -1,0 +1,17 @@
+[project]
+name = "ccbt-2025-parallel-botanical-garden-proto"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "argostranslate>=1.9.6",
+    "googletrans>=4.0.2",
+    "loguru>=0.7.3",
+    "numpy>=1.24.0",
+    "openai>=1.109.1",
+    "python-osc>=1.9.3",
+    "scipy>=1.10.0",
+    "smbus2>=0.6.0",
+    "soundfile>=0.12.0",
+]
