@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+import random
 
 from loguru import logger
 
@@ -14,8 +15,7 @@ from api.llm import StackFlowLLMClient
 from api.tts import StackFlowTTSClient
 
 from bi.models import BIInputData
-from bi.utils import P, make_random_soft_prefix_b64 
-
+from bi.utils import P, H, VALS, make_random_soft_prefix_b64, make_soft_prefix_b64_constant
 
 def load_config(path: Path) -> dict:
     """
@@ -72,7 +72,10 @@ class BIController_TEST:
             raise ValueError("sample_text is empty")
 
         effective_lang = lang or self.config.get("common", {}).get("lang", "ja")
-        effective_sp_b64 = soft_prefix_b64 or make_random_soft_prefix_b64()
+        #effective_sp_b64 = soft_prefix_b64 or make_random_soft_prefix_b64()
+        v = random.choice(VALS)
+        logger.info(f"Selected soft prefix value: {v}")
+        effective_sp_b64 = make_soft_prefix_b64_constant(P, H, v)
 
         logger.info("=== BIController_TEST.generate_sample ===")
         logger.info(f"lang={effective_lang}, soft_prefix_len={soft_prefix_len}")
