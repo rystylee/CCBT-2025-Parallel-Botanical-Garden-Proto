@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -349,7 +350,8 @@ class StackFlowTTSClient:
                 logger.info("Converting WAV file with FFmpeg...")
                 if enable_rumble:
                     # Get advanced rumble parameters from config
-                    pitch_steps = audio_config.get("rumble_pitch_steps", -16.0)
+                    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
+                    pitch_steps = random.uniform(pitch_range["min"], pitch_range["max"])
                     sub_oct_mix = audio_config.get("rumble_sub_oct_mix", 0.55)
                     rumble_mix = audio_config.get("rumble_mix", 0.25)
                     rumble_base_hz = audio_config.get("rumble_base_hz", 55.0)

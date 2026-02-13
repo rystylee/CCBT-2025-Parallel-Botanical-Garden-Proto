@@ -32,7 +32,7 @@
     "enable_ffmpeg_convert": true,
     "enable_rumble_effect": true,
     "temp_wav_dir": "./tmp",
-    "rumble_pitch_steps": -16.0,
+    "rumble_pitch_steps_range": {"min": -16.0, "max": -3.0},
     "rumble_sub_oct_mix": 0.55,
     "rumble_mix": 0.25,
     "rumble_base_hz": 55.0,
