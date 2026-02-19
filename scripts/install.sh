@@ -28,8 +28,8 @@ mv -i TinySwallow-1.5B-Instruct/m5stack/data/models/mode_TinySwallow-1.5B.json /
 mv -i TinySwallow-1.5B-Instruct/m5stack/scripts/TinySwallow-1.5B_tokenizer.py /opt/m5stack/scripts/
 
 # melo tts
-apt install llm-model-melotts-zh-cn -y
-apt install llm-model-melotts-en-us -y
+# apt install llm-model-melotts-zh-cn -y
+# apt install llm-model-melotts-en-us -y
 apt install llm-model-melotts-ja-jp -y
 
 # openai
