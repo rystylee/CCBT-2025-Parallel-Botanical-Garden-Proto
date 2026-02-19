@@ -44,5 +44,5 @@ dpkg -i lib-llm_1.7-m5stack1_arm64.deb
 dpkg -i llm-llm_1.8-m5stack1_arm64.deb
 dpkg -i llm-melotts_1.7-m5stack1_arm64.deb
 
-# virtual eivironment
+# virtual environment
 /root/.local/bin/uv sync
