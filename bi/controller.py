@@ -107,10 +107,14 @@ class BIController:
             self.state = "RESTING"
             return
 
-        # Play TTS (all inputs + generated)
+        # Play TTS (all inputs + generated) with status notifications
         try:
             # self.tts_client.speak(self.tts_text)
-            await self.tts_client.speak_to_file(self.tts_text)
+            await self.tts_client.speak_to_file(
+                self.tts_text,
+                on_start_callback=lambda text: self._send_tts_status("start", text),
+                on_end_callback=lambda text, error=False: self._send_tts_status("end", text, error),
+            )
         except Exception as e:
             logger.error(f"Error in TTS: {e}")
 
@@ -191,6 +195,67 @@ class BIController:
         logger.info(
             f"Added input: {source_type} '{text[:20]}...' age={age:.2f}s " f"(buffer size: {len(self.input_buffer)})"
         )
+
+    def _send_tts_status(self, status: str, text: str, error: bool = False):
+        """
+        Send TTS status notification via OSC.
+
+        Args:
+            status: "start" or "end"
+            text: TTS text being spoken
+            error: True if TTS failed (only for "end" status)
+        """
+        notification_config = self.config.get("tts_status_notifications", {})
+
+        # Check if notifications are enabled
+        if not notification_config.get("enabled", False):
+            logger.debug("TTS status notifications are disabled")
+            return
+
+        targets = notification_config.get("targets", [])
+        if not targets:
+            logger.warning("No TTS status notification targets configured")
+            return
+
+        # Get device_id for the notification
+        device_id = self.config.get("network", {}).get("device_id", 0)
+        timestamp = time.time()
+        send_simple = notification_config.get("send_simple_status", True)
+
+        # Send to all configured targets
+        for target in targets:
+            try:
+                target_dict = {"host": target.get("host"), "port": target.get("port")}
+
+                # Select appropriate address based on status
+                if status == "start":
+                    address = target.get("start_address", "/bi/tts/start")
+                    # Arguments: device_id, text, timestamp
+                    self.osc_client.send_to_target(target_dict, address, device_id, text, timestamp)
+                    logger.info(f"Sent TTS start notification to {target.get('name')}: device_id={device_id}")
+
+                    # Send simple status: 1 (speaking)
+                    if send_simple and target.get("simple_address"):
+                        self.osc_client.send_to_target(target_dict, target.get("simple_address"), device_id, 1)
+                        logger.debug(f"Sent simple TTS status to {target.get('name')}: 1 (speaking)")
+
+                elif status == "end":
+                    address = target.get("end_address", "/bi/tts/end")
+                    # Arguments: device_id, timestamp, error (0 or 1)
+                    error_flag = 1 if error else 0
+                    self.osc_client.send_to_target(target_dict, address, device_id, timestamp, error_flag)
+                    logger.info(
+                        f"Sent TTS end notification to {target.get('name')}: "
+                        f"device_id={device_id}, error={error_flag}"
+                    )
+
+                    # Send simple status: 0 (not speaking)
+                    if send_simple and target.get("simple_address"):
+                        self.osc_client.send_to_target(target_dict, target.get("simple_address"), device_id, 0)
+                        logger.debug(f"Sent simple TTS status to {target.get('name')}: 0 (not speaking)")
+
+            except Exception as e:
+                logger.error(f"Failed to send TTS status to {target.get('name')}: {e}")
 
     def get_status(self) -> dict:
         """Get current status"""

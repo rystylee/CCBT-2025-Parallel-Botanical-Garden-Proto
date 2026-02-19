@@ -306,7 +306,7 @@ class StackFlowTTSClient:
         response = receive_response(self.sock, timeout=10.0)
         logger.debug(f"tts response: {response}")
 
-    async def speak_to_file(self, text: str) -> None:
+    async def speak_to_file(self, text: str, on_start_callback=None, on_end_callback=None) -> None:
         """
         Generate WAV file from text and play it using tinyplay.
 
@@ -315,6 +315,8 @@ class StackFlowTTSClient:
 
         Args:
             text: Text to synthesize
+            on_start_callback: Optional callback to call before tinyplay starts (args: text)
+            on_end_callback: Optional callback to call after tinyplay ends (args: text, error)
 
         Raises:
             Exception: WAV generation, conversion, or playback failed
@@ -385,12 +387,36 @@ class StackFlowTTSClient:
 
             # Step 3: Play WAV file using tinyplay
             logger.info("Playing WAV file with tinyplay...")
+
+            # Call on_start_callback before tinyplay starts
+            if on_start_callback:
+                try:
+                    on_start_callback(text)
+                except Exception as e:
+                    logger.error(f"on_start_callback failed: {e}")
+
+            # Execute tinyplay
             tinyplay_play(playback_path, tinyplay_card, tinyplay_device)
+
+            # Call on_end_callback after tinyplay ends successfully
+            if on_end_callback:
+                try:
+                    on_end_callback(text, error=False)
+                except Exception as e:
+                    logger.error(f"on_end_callback failed: {e}")
 
             logger.info("TTS playback completed successfully")
 
         except Exception as e:
             logger.error(f"TTS speak_to_file failed: {e}")
+
+            # Call on_end_callback with error flag
+            if on_end_callback:
+                try:
+                    on_end_callback(text, error=True)
+                except Exception as callback_error:
+                    logger.error(f"on_end_callback (error case) failed: {callback_error}")
+
             raise
 
         finally:
