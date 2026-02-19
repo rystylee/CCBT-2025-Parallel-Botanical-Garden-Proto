@@ -174,23 +174,27 @@ ID,IP,To
 adb shell
 
 # 2. リポジトリをクローン
-cd /root
-git clone <repository-url> CCBT-2025-Parallel-Botanical-Garden-Proto
+cd /root && mkdir dev && cd dev
+git clone https://github.com/rystylee/CCBT-2025-Parallel-Botanical-Garden-Proto.git
 cd CCBT-2025-Parallel-Botanical-Garden-Proto
 
 # 3. インストールスクリプトを実行
-chmod +x scripts/install.sh
-./scripts/install.sh
+. ./scripts/install.sh
 
-# 4. ソフトプリフィックスをダウンロード
-./scripts/download_and_install_soft_prefix.sh
-
-# 5. （オプション）翻訳パッケージをインストール
-./scripts/install_argostranslate_packages.sh
-
-# 6. 設定ファイルを編集
-vi config/config.json
+# 4. 設定ファイルを編集
+vim config/config.json
 # device_id を設定（IPアドレスと送信先はnetworks.csvから自動取得）
+
+# 5. IPアドレスを固定
+vim /etc/network/interfaces
+# 以下を参考に、IPアドレスを設定
+---
+allow-hotplug eth0
+#iface eth0 inet dhcp
+iface eth0 inet static
+    address 10.0.0.1
+    netmask 255.255.255.0
+---
 ```
 
 ---
@@ -202,7 +206,7 @@ vi config/config.json
 ```bash
 # M5Stackに接続
 adb shell
-cd /root/CCBT-2025-Parallel-Botanical-Garden-Proto
+cd /root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto
 
 # アプリケーションを起動
 uv run python main.py
