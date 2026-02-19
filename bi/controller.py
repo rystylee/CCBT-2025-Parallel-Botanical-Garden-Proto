@@ -162,18 +162,35 @@ class BIController:
         """Add input data to buffer with immediate filtering"""
         current_time = time.time()
         max_age = self.config.get("cycle", {}).get("max_data_age", 60.0)
+        age = current_time - timestamp
+
+        # Enhanced logging for debugging timestamp issues
+        logger.debug(
+            f"Timestamp check: current={current_time:.2f}, received={timestamp:.2f}, "
+            f"age={age:.2f}s, max_age={max_age}s"
+        )
 
         # Check timestamp immediately - reject old data
-        if (current_time - timestamp) > max_age:
+        if age > max_age:
             logger.warning(
-                f"Rejected old data: timestamp={timestamp}, age={current_time - timestamp:.2f}s, "
+                f"Rejected old data: timestamp={timestamp}, age={age:.2f}s, "
+                f"max_age={max_age}s, source={source_type}, text='{text[:20]}...'"
+            )
+            return
+
+        # Also check for future timestamps (potential clock skew)
+        if age < -5.0:  # Allow 5 seconds tolerance for network delay
+            logger.warning(
+                f"Rejected future data: timestamp={timestamp}, age={age:.2f}s, "
                 f"source={source_type}, text='{text[:20]}...'"
             )
             return
 
         data = BIInputData(timestamp=timestamp, text=text, source_type=source_type, lang=lang)
         self.input_buffer.append(data)
-        logger.info(f"Added input: {source_type} '{text[:20]}...' " f"(buffer size: {len(self.input_buffer)})")
+        logger.info(
+            f"Added input: {source_type} '{text[:20]}...' age={age:.2f}s " f"(buffer size: {len(self.input_buffer)})"
+        )
 
     def get_status(self) -> dict:
         """Get current status"""
