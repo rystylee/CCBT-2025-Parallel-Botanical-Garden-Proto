@@ -1,5 +1,4 @@
 import asyncio
-import time
 from typing import List
 
 from loguru import logger
@@ -107,29 +106,27 @@ class BIController:
             self.state = "RESTING"
             return
 
-        # Play TTS (all inputs + generated) with status notifications
+        # LED fade up before TTS
+        await self._led_fade_up()
+
+        # Play TTS (all inputs + generated)
         try:
-            # self.tts_client.speak(self.tts_text)
-            await self.tts_client.speak_to_file(
-                self.tts_text,
-                on_start_callback=lambda text: self._send_tts_status("start", text),
-                on_end_callback=lambda text, error=False: self._send_tts_status("end", text, error),
-            )
+            await self.tts_client.speak_to_file(self.tts_text)
         except Exception as e:
             logger.error(f"Error in TTS: {e}")
+        finally:
+            # LED fade down after TTS
+            await self._led_fade_down()
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])
-        lang = self.config.get("common", {}).get("lang", "ja")
 
         # Use the lowest relay_count from buffer
         lowest_relay_count = min(data.relay_count for data in self.input_buffer)
         logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
 
         try:
-            self.osc_client.send_to_all_targets(
-                targets, "/bi/input", lowest_relay_count, self.generated_text, "BI", lang  # source_type
-            )
+            self.osc_client.send_to_all_targets(targets, "/bi/input", lowest_relay_count, self.generated_text)
         except Exception as e:
             logger.error(f"Error sending to targets: {e}")
 
@@ -161,7 +158,7 @@ class BIController:
         """Concatenate input texts in received order"""
         return "".join([data.text for data in self.input_buffer])
 
-    def add_input(self, relay_count: int, text: str, source_type: str, lang: str):
+    def add_input(self, relay_count: int, text: str):
         """Add input data to buffer with relay count filtering"""
         max_relay_count = self.config.get("cycle", {}).get("max_relay_count", 6)
 
@@ -172,80 +169,87 @@ class BIController:
         if relay_count >= max_relay_count:
             logger.warning(
                 f"Rejected data exceeding relay limit: relay_count={relay_count}, "
-                f"max_relay_count={max_relay_count}, source={source_type}, text='{text[:20]}...'"
+                f"max_relay_count={max_relay_count}, text='{text[:20]}...'"
             )
             return
 
         # Increment relay count for next transmission
         next_relay_count = relay_count + 1
 
-        data = BIInputData(relay_count=next_relay_count, text=text, source_type=source_type, lang=lang)
+        data = BIInputData(relay_count=next_relay_count, text=text)
         self.input_buffer.append(data)
         logger.info(
-            f"Added input: {source_type} '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
+            f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
             f"(buffer size: {len(self.input_buffer)})"
         )
 
-    def _send_tts_status(self, status: str, text: str, error: bool = False):
-        """
-        Send TTS status notification via OSC.
+    async def _led_fade_up(self):
+        """Fade LED up (0.0 -> 1.0) before TTS starts"""
+        led_config = self.config.get("led_control", {})
 
-        Args:
-            status: "start" or "end"
-            text: TTS text being spoken
-            error: True if TTS failed (only for "end" status)
-        """
-        notification_config = self.config.get("tts_status_notifications", {})
-
-        # Check if notifications are enabled
-        if not notification_config.get("enabled", False):
-            logger.debug("TTS status notifications are disabled")
+        # Check if LED control is enabled
+        if not led_config.get("enabled", False):
+            logger.debug("LED control is disabled")
             return
 
-        targets = notification_config.get("targets", [])
+        targets = led_config.get("targets", [])
         if not targets:
-            logger.warning("No TTS status notification targets configured")
+            logger.debug("No LED control targets configured")
             return
 
-        # Get device_id for the notification
-        device_id = self.config.get("network", {}).get("device_id", 0)
-        timestamp = time.time()
-        send_simple = notification_config.get("send_simple_status", True)
+        steps = led_config.get("fade_steps", 40)
+        duration = led_config.get("fade_up_duration", 2.0)
+        dt = duration / steps
 
-        # Send to all configured targets
-        for target in targets:
-            try:
-                target_dict = {"host": target.get("host"), "port": target.get("port")}
+        logger.info(f"LED fade up: steps={steps}, duration={duration}s")
 
-                # Select appropriate address based on status
-                if status == "start":
-                    address = target.get("start_address", "/bi/tts/start")
-                    # Arguments: device_id, text, timestamp
-                    self.osc_client.send_to_target(target_dict, address, device_id, text, timestamp)
-                    logger.info(f"Sent TTS start notification to {target.get('name')}: device_id={device_id}")
+        # Send fade up messages to all targets
+        for i in range(steps + 1):
+            value = i / steps
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led", value)
+                except Exception as e:
+                    logger.error(f"Failed to send LED fade up to {target}: {e}")
 
-                    # Send simple status: 1 (speaking)
-                    if send_simple and target.get("simple_address"):
-                        self.osc_client.send_to_target(target_dict, target.get("simple_address"), device_id, 1)
-                        logger.debug(f"Sent simple TTS status to {target.get('name')}: 1 (speaking)")
+            if i < steps:  # Don't sleep after the last step
+                await asyncio.sleep(dt)
 
-                elif status == "end":
-                    address = target.get("end_address", "/bi/tts/end")
-                    # Arguments: device_id, timestamp, error (0 or 1)
-                    error_flag = 1 if error else 0
-                    self.osc_client.send_to_target(target_dict, address, device_id, timestamp, error_flag)
-                    logger.info(
-                        f"Sent TTS end notification to {target.get('name')}: "
-                        f"device_id={device_id}, error={error_flag}"
-                    )
+        logger.debug("LED fade up complete")
 
-                    # Send simple status: 0 (not speaking)
-                    if send_simple and target.get("simple_address"):
-                        self.osc_client.send_to_target(target_dict, target.get("simple_address"), device_id, 0)
-                        logger.debug(f"Sent simple TTS status to {target.get('name')}: 0 (not speaking)")
+    async def _led_fade_down(self):
+        """Fade LED down (1.0 -> 0.0) after TTS ends"""
+        led_config = self.config.get("led_control", {})
 
-            except Exception as e:
-                logger.error(f"Failed to send TTS status to {target.get('name')}: {e}")
+        # Check if LED control is enabled
+        if not led_config.get("enabled", False):
+            logger.debug("LED control is disabled")
+            return
+
+        targets = led_config.get("targets", [])
+        if not targets:
+            logger.debug("No LED control targets configured")
+            return
+
+        steps = led_config.get("fade_steps", 40)
+        duration = led_config.get("fade_down_duration", 2.0)
+        dt = duration / steps
+
+        logger.info(f"LED fade down: steps={steps}, duration={duration}s")
+
+        # Send fade down messages to all targets
+        for i in range(steps, -1, -1):
+            value = i / steps
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led", value)
+                except Exception as e:
+                    logger.error(f"Failed to send LED fade down to {target}: {e}")
+
+            if i > 0:  # Don't sleep after the last step
+                await asyncio.sleep(dt)
+
+        logger.debug("LED fade down complete")
 
     def get_status(self) -> dict:
         """Get current status"""

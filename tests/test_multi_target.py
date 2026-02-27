@@ -29,13 +29,11 @@ def test_multi_target_send():
     osc_client = OscClient(config)
 
     # Test send to all targets
-    import time
-
-    timestamp = time.time()
+    relay_count = 1
     test_text = "テストメッセージ"
 
     logger.info("Sending to all targets...")
-    osc_client.send_to_all_targets(config["targets"], "/bi/input", timestamp, test_text, "BI", "ja")
+    osc_client.send_to_all_targets(config["targets"], "/bi/input", relay_count, test_text)
 
     logger.info("Multi-target send test completed!")
 

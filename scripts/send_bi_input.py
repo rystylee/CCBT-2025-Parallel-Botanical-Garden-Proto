@@ -4,11 +4,10 @@ Debug script to send /bi/input OSC messages to a running BI device.
 
 Usage:
     python scripts/send_bi_input.py --host 192.168.1.100 --text "こんにちは"
-    python scripts/send_bi_input.py -H 192.168.1.100 -t "Hello world" -s BI -l en
+    python scripts/send_bi_input.py -H 192.168.1.100 -t "Hello world" -r 2
 """
 
 import argparse
-import time
 
 from pythonosc import udp_client
 
@@ -17,24 +16,17 @@ def send_bi_input(
     host: str,
     port: int,
     text: str,
-    source_type: str = "human",
-    lang: str = "ja",
-    timestamp: float | None = None,
+    relay_count: int = 0,
 ):
     """Send /bi/input OSC message to target device."""
-    if timestamp is None:
-        timestamp = time.time()
-
     client = udp_client.SimpleUDPClient(host, port)
 
     print(f"Sending to {host}:{port}")
-    print(f"  Address: /bi/input")
-    print(f"  Timestamp: {timestamp}")
+    print("  Address: /bi/input")
+    print(f"  Relay Count: {relay_count}")
     print(f"  Text: {text}")
-    print(f"  Source Type: {source_type}")
-    print(f"  Language: {lang}")
 
-    client.send_message("/bi/input", [timestamp, text, source_type, lang])
+    client.send_message("/bi/input", [relay_count, text])
     print("✓ Message sent successfully")
 
 
@@ -44,17 +36,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Send human input (Japanese)
+  # Send input with relay_count 0 (default)
   python scripts/send_bi_input.py -H 192.168.1.100 -t "こんにちは"
 
-  # Send BI input (English)
-  python scripts/send_bi_input.py -H 192.168.1.100 -t "Hello" -s BI -l en
+  # Send input with relay_count 2
+  python scripts/send_bi_input.py -H 192.168.1.100 -t "Hello" -r 2
 
   # Send to custom port
   python scripts/send_bi_input.py -H 192.168.1.100 -p 9000 -t "世界"
-
-  # Send with custom timestamp
-  python scripts/send_bi_input.py -H 192.168.1.100 -t "test" --timestamp 1234567890.5
         """,
     )
 
@@ -83,28 +72,11 @@ Examples:
     )
 
     parser.add_argument(
-        "-s",
-        "--source-type",
-        type=str,
-        choices=["human", "BI"],
-        default="human",
-        help="Source type: 'human' or 'BI' (default: human)",
-    )
-
-    parser.add_argument(
-        "-l",
-        "--lang",
-        type=str,
-        choices=["ja", "en", "zh", "fr"],
-        default="ja",
-        help="Language code (default: ja)",
-    )
-
-    parser.add_argument(
-        "--timestamp",
-        type=float,
-        default=None,
-        help="Custom timestamp (default: current time)",
+        "-r",
+        "--relay-count",
+        type=int,
+        default=0,
+        help="Relay count (default: 0)",
     )
 
     args = parser.parse_args()
@@ -114,9 +86,7 @@ Examples:
             host=args.host,
             port=args.port,
             text=args.text,
-            source_type=args.source_type,
-            lang=args.lang,
-            timestamp=args.timestamp,
+            relay_count=args.relay_count,
         )
     except Exception as e:
         print(f"✗ Error: {e}")

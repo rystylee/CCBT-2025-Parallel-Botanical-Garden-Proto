@@ -7,5 +7,3 @@ class BIInputData:
 
     relay_count: int
     text: str
-    source_type: str  # "HUMAN" or "BI"
-    lang: str

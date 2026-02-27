@@ -23,11 +23,11 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 全てのBIデバイスは同一の動作を行います：
 - 他のBIデバイスからの信号を受け付ける
 - 人間の声（マイク入力）を受け付ける
-- 入力: `{relay_count, text, source_type, lang}`
+- 入力: `{relay_count, text}`
   - `relay_count`: メッセージの伝達回数（0から始まる整数）
-  - `source_type`: "HUMAN"（人間からの入力）または "BI"（他のBIからの入力）
+  - `text`: テキスト内容
 
-**注意**: どのBIデバイスにも人間の入力を送ることができます。システムはデバイスの種類を区別せず、入力元（source_type）のみを記録します。
+**注意**: どのBIデバイスにも人間の入力を送ることができます。
 
 ### 2.2 動作サイクル
 
@@ -44,7 +44,9 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 3. 出力期間
    ↓ バッファが空の場合はスキップ
+   ↓ LEDフェードアップ（0.0→1.0）
    ↓ 全入力+生成をTTS音声生成・再生
+   ↓ LEDフェードダウン（1.0→0.0）
    ↓ 生成テキストをOSC送信（次のBIへ）
 
 4. 休息期間（1秒）
@@ -112,13 +114,14 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 - **フォーマット**: WAV形式（16kHz, mono, s16）
 - **後処理**: FFmpeg変換（オプション）、ランブルエフェクト（オプション）
 - **音量**: デフォルト15%
+- **LED連動**: TTS再生開始前にLEDフェードアップ、再生終了後にLEDフェードダウン
 
 ### 3.3 OSC通信
 
 #### 受信エンドポイント（UDP: 8000）
 | エンドポイント | 引数 | 機能 |
 |------------|------|------|
-| `/bi/input` | relay_count, text, source_type, lang | 入力データ受付 |
+| `/bi/input` | relay_count, text | 入力データ受付 |
 | `/bi/stop` | なし | サイクル停止 |
 | `/bi/status` | なし | ステータス取得 |
 
@@ -127,11 +130,15 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 #### 送信
 - **BIデバイス間通信**: `/bi/input` 経由で次のBIデバイスへ生成テキストを送信
   - 送信先: 設定ファイル（networks.csv）で指定
-  - 送信内容: `relay_count, generated_text, "BI", lang`
+  - 送信内容: `relay_count, generated_text`
 - **Mixer PC送信**: `/mixer` 経由で生成テキストを送信
   - 送信先: config.json の `mixer` セクションで指定
   - 送信内容: `generated_text` のみ
   - 送信タイミング: LLM生成成功時に毎回送信
+- **LED制御**: `/led` 経由でLED輝度を制御
+  - 送信先: config.json の `led_control.targets` で指定
+  - 送信内容: `value` (0.0-1.0の輝度値)
+  - 送信タイミング: TTS開始前（フェードアップ）、TTS終了後（フェードダウン）
 
 ---
 
@@ -164,6 +171,18 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
   },
   "stack_flow_llm": {
     "max_tokens": 128
+  },
+  "led_control": {
+    "enabled": true,              // LED制御の有効/無効
+    "targets": [                  // LED制御の送信先
+      {
+        "host": "127.0.0.1",      // 通常は自分のマシン（pca9685_osc_led_server.py）
+        "port": 9000
+      }
+    ],
+    "fade_steps": 40,             // フェードのステップ数
+    "fade_up_duration": 2.0,      // フェードアップの時間（秒）
+    "fade_down_duration": 2.0     // フェードダウンの時間（秒）
   }
 }
 ```

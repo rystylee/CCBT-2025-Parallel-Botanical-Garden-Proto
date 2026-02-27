@@ -16,22 +16,19 @@ def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
     print("=" * 50)
     print("NOTE: BI cycle starts automatically on application startup")
 
-    # Send first human input
-    print("\n1. Sending first human input: 'こんにちは'")
-    timestamp1 = time.time()
-    client.send_message("/bi/input", [timestamp1, "こんにちは", "human", "ja"])
+    # Send first input
+    print("\n1. Sending first input: 'こんにちは' (relay_count=0)")
+    client.send_message("/bi/input", [0, "こんにちは"])
     time.sleep(1.0)
 
-    # Send second human input
-    print("\n2. Sending second human input: '世界'")
-    timestamp2 = time.time()
-    client.send_message("/bi/input", [timestamp2, "世界", "human", "ja"])
+    # Send second input
+    print("\n2. Sending second input: '世界' (relay_count=0)")
+    client.send_message("/bi/input", [0, "世界"])
     time.sleep(0.5)
 
-    # Simulate BI input
-    print("\n3. Sending BI input: 'よ'")
-    timestamp3 = time.time()
-    client.send_message("/bi/input", [timestamp3, "よ", "BI", "ja"])
+    # Send third input
+    print("\n3. Sending third input: 'よ' (relay_count=1)")
+    client.send_message("/bi/input", [1, "よ"])
     time.sleep(0.5)
 
     # Check status
@@ -45,12 +42,10 @@ def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
 
     # Send another round of inputs
     print("\n6. Sending new inputs for second cycle...")
-    timestamp4 = time.time()
-    client.send_message("/bi/input", [timestamp4, "静かな", "human", "ja"])
+    client.send_message("/bi/input", [0, "静かな"])
     time.sleep(1.0)
 
-    timestamp5 = time.time()
-    client.send_message("/bi/input", [timestamp5, "夜", "human", "ja"])
+    client.send_message("/bi/input", [0, "夜"])
     time.sleep(3.0)
 
     # Check status again
@@ -70,24 +65,22 @@ def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
     print("Test completed!")
 
 
-def test_old_data_filtering(host: str = "192.168.151.31", port: int = 8000):
-    """Test old data filtering (61+ seconds old)"""
+def test_relay_count_filtering(host: str = "192.168.151.31", port: int = 8000):
+    """Test relay count filtering (max_relay_count=6)"""
     client = udp_client.SimpleUDPClient(host, port)
 
-    print(f"Testing old data filtering at {host}:{port}")
+    print(f"Testing relay count filtering at {host}:{port}")
     print("=" * 50)
     print("NOTE: BI cycle starts automatically on application startup")
 
-    # Send very old data (should be filtered out)
-    print("\n1. Sending old data (61 seconds ago)...")
-    old_timestamp = time.time() - 61.0
-    client.send_message("/bi/input", [old_timestamp, "古いデータ", "human", "ja"])
+    # Send data with high relay count (should be filtered out)
+    print("\n1. Sending data with relay_count=6 (should be rejected)...")
+    client.send_message("/bi/input", [6, "リレー回数が多すぎるデータ"])
     time.sleep(0.5)
 
-    # Send recent data (should be kept)
-    print("\n2. Sending recent data...")
-    recent_timestamp = time.time()
-    client.send_message("/bi/input", [recent_timestamp, "新しいデータ", "human", "ja"])
+    # Send data with normal relay count (should be kept)
+    print("\n2. Sending data with relay_count=0 (should be accepted)...")
+    client.send_message("/bi/input", [0, "正常なデータ"])
     time.sleep(3.0)
 
     # Check status
@@ -104,29 +97,27 @@ def test_old_data_filtering(host: str = "192.168.151.31", port: int = 8000):
     client.send_message("/bi/stop", [])
 
     print("\n" + "=" * 50)
-    print("Old data filtering test completed!")
+    print("Relay count filtering test completed!")
 
 
-def test_mixed_input(host: str = "192.168.151.31", port: int = 8000):
+def test_mixed_relay_counts(host: str = "192.168.151.31", port: int = 8000):
     """
-    Test mixed input (human + BI inputs)
+    Test mixed relay counts
     """
     client = udp_client.SimpleUDPClient(host, port)
 
-    print(f"Testing mixed input mode at {host}:{port}")
+    print(f"Testing mixed relay counts at {host}:{port}")
     print("=" * 50)
     print("NOTE: BI cycle starts automatically on application startup")
 
-    # Send human input
-    print("\n1. Sending human input...")
-    timestamp1 = time.time()
-    client.send_message("/bi/input", [timestamp1, "人間の入力", "HUMAN", "ja"])
+    # Send input with relay_count=0
+    print("\n1. Sending input with relay_count=0...")
+    client.send_message("/bi/input", [0, "初期入力"])
     time.sleep(1.0)
 
-    # Send BI input
-    print("\n2. Sending BI input...")
-    timestamp2 = time.time()
-    client.send_message("/bi/input", [timestamp2, "BIからの入力", "BI", "ja"])
+    # Send input with relay_count=3
+    print("\n2. Sending input with relay_count=3...")
+    client.send_message("/bi/input", [3, "リレーされた入力"])
     time.sleep(3.0)
 
     # Check status
@@ -143,7 +134,7 @@ def test_mixed_input(host: str = "192.168.151.31", port: int = 8000):
     client.send_message("/bi/stop", [])
 
     print("\n" + "=" * 50)
-    print("Mixed input test completed!")
+    print("Mixed relay counts test completed!")
 
 
 def main():
@@ -159,15 +150,15 @@ def main():
     if args.test == "cycle":
         test_bi_cycle(args.host, args.port)
     elif args.test == "filter":
-        test_old_data_filtering(args.host, args.port)
+        test_relay_count_filtering(args.host, args.port)
     elif args.test == "mixed":
-        test_mixed_input(args.host, args.port)
+        test_mixed_relay_counts(args.host, args.port)
     elif args.test == "all":
         test_bi_cycle(args.host, args.port)
         time.sleep(2)
-        test_old_data_filtering(args.host, args.port)
+        test_relay_count_filtering(args.host, args.port)
         time.sleep(2)
-        test_mixed_input(args.host, args.port)
+        test_mixed_relay_counts(args.host, args.port)
 
 
 if __name__ == "__main__":
