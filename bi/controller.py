@@ -122,13 +122,13 @@ class BIController:
         targets = self.config.get("targets", [])
         lang = self.config.get("common", {}).get("lang", "ja")
 
-        # Use the newest timestamp from buffer
-        newest_timestamp = max(data.timestamp for data in self.input_buffer)
-        logger.debug(f"Using newest timestamp from buffer: {newest_timestamp}")
+        # Use the lowest relay_count from buffer
+        lowest_relay_count = min(data.relay_count for data in self.input_buffer)
+        logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
 
         try:
             self.osc_client.send_to_all_targets(
-                targets, "/bi/input", newest_timestamp, self.generated_text, "BI", lang  # source_type
+                targets, "/bi/input", lowest_relay_count, self.generated_text, "BI", lang  # source_type
             )
         except Exception as e:
             logger.error(f"Error sending to targets: {e}")
@@ -158,42 +158,32 @@ class BIController:
         self.state = "RECEIVING"
 
     def _concatenate_inputs(self) -> str:
-        """Concatenate input texts in chronological order"""
-        sorted_data = sorted(self.input_buffer, key=lambda x: x.timestamp)
-        return "".join([data.text for data in sorted_data])
+        """Concatenate input texts in received order"""
+        return "".join([data.text for data in self.input_buffer])
 
-    def add_input(self, timestamp: float, text: str, source_type: str, lang: str):
-        """Add input data to buffer with immediate filtering"""
-        current_time = time.time()
-        max_age = self.config.get("cycle", {}).get("max_data_age", 60.0)
-        age = current_time - timestamp
+    def add_input(self, relay_count: int, text: str, source_type: str, lang: str):
+        """Add input data to buffer with relay count filtering"""
+        max_relay_count = self.config.get("cycle", {}).get("max_relay_count", 6)
 
-        # Enhanced logging for debugging timestamp issues
-        logger.debug(
-            f"Timestamp check: current={current_time:.2f}, received={timestamp:.2f}, "
-            f"age={age:.2f}s, max_age={max_age}s"
-        )
+        # Enhanced logging for debugging relay count
+        logger.debug(f"Relay count check: received={relay_count}, max_relay_count={max_relay_count}")
 
-        # Check timestamp immediately - reject old data
-        if age > max_age:
+        # Check relay count immediately - reject data exceeding limit
+        if relay_count >= max_relay_count:
             logger.warning(
-                f"Rejected old data: timestamp={timestamp}, age={age:.2f}s, "
-                f"max_age={max_age}s, source={source_type}, text='{text[:20]}...'"
+                f"Rejected data exceeding relay limit: relay_count={relay_count}, "
+                f"max_relay_count={max_relay_count}, source={source_type}, text='{text[:20]}...'"
             )
             return
 
-        # Also check for future timestamps (potential clock skew)
-        if age < -5.0:  # Allow 5 seconds tolerance for network delay
-            logger.warning(
-                f"Rejected future data: timestamp={timestamp}, age={age:.2f}s, "
-                f"source={source_type}, text='{text[:20]}...'"
-            )
-            return
+        # Increment relay count for next transmission
+        next_relay_count = relay_count + 1
 
-        data = BIInputData(timestamp=timestamp, text=text, source_type=source_type, lang=lang)
+        data = BIInputData(relay_count=next_relay_count, text=text, source_type=source_type, lang=lang)
         self.input_buffer.append(data)
         logger.info(
-            f"Added input: {source_type} '{text[:20]}...' age={age:.2f}s " f"(buffer size: {len(self.input_buffer)})"
+            f"Added input: {source_type} '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
+            f"(buffer size: {len(self.input_buffer)})"
         )
 
     def _send_tts_status(self, status: str, text: str, error: bool = False):
