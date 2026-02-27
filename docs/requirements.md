@@ -23,9 +23,10 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 全てのBIデバイスは同一の動作を行います：
 - 他のBIデバイスからの信号を受け付ける
 - 人間の声（マイク入力）を受け付ける
-- 入力: `{relay_count, text}`
-  - `relay_count`: メッセージの伝達回数（0から始まる整数）
+- 入力: `{text, soft_prefix_b64, relay_count}`
   - `text`: テキスト内容
+  - `soft_prefix_b64`: LLM推論用のsoft prefix（Base64エンコード済みbf16データ）
+  - `relay_count`: メッセージの伝達回数（0から始まる整数）
 
 **注意**: どのBIデバイスにも人間の入力を送ることができます。
 
@@ -40,14 +41,14 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 
 2. 生成期間
    ↓ 入力データを受信順に連結
-   ↓ LLMで続きのテキストを生成（2~3トークン）
+   ↓ 入力データのsoft_prefix_b64を使用してLLMで続きのテキストを生成（2~3トークン）
 
 3. 出力期間
    ↓ バッファが空の場合はスキップ
    ↓ LEDフェードアップ（0.0→1.0）
    ↓ 全入力+生成をTTS音声生成・再生
    ↓ LEDフェードダウン（1.0→0.0）
-   ↓ 生成テキストをOSC送信（次のBIへ）
+   ↓ 生成テキストとsoft_prefix_b64をOSC送信（次のBIへ）
 
 4. 休息期間（1秒）
    ↓ 待機
@@ -121,7 +122,7 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 #### 受信エンドポイント（UDP: 8000）
 | エンドポイント | 引数 | 機能 |
 |------------|------|------|
-| `/bi/input` | relay_count, text | 入力データ受付 |
+| `/bi/input` | text, soft_prefix_b64, relay_count | 入力データ受付 |
 | `/bi/stop` | なし | サイクル停止 |
 | `/bi/status` | なし | ステータス取得 |
 
@@ -130,7 +131,7 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 #### 送信
 - **BIデバイス間通信**: `/bi/input` 経由で次のBIデバイスへ生成テキストを送信
   - 送信先: 設定ファイル（networks.csv）で指定
-  - 送信内容: `relay_count, generated_text`
+  - 送信内容: `generated_text, soft_prefix_b64, relay_count`
 - **Mixer PC送信**: `/mixer` 経由で生成テキストを送信
   - 送信先: config.json の `mixer` セクションで指定
   - 送信内容: `generated_text` のみ

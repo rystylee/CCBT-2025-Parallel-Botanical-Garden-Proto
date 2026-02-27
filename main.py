@@ -52,8 +52,8 @@ async def async_main():
 
     # Register BI-specific handlers
     def handle_bi_input(_, *args):
-        # OSC message format: /bi/input relay_count text
-        bi.add_input(args[0], args[1])
+        # OSC message format: /bi/input text soft_prefix_b64 relay_count
+        bi.add_input(text=args[0], soft_prefix_b64=args[1], relay_count=args[2])
 
     def handle_bi_stop(_, *__):
         bi.stop_cycle()

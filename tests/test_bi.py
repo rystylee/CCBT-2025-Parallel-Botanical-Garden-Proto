@@ -3,9 +3,36 @@
 Test script for Botanical Intelligence (BI) system
 """
 import argparse
+import base64
+import random
+import struct
 import time
 
 from pythonosc import udp_client
+
+# Soft prefix generation utilities (copied from bi/utils.py)
+P = 1  # num prefix_token
+H = 1536  # tokens_embed_size
+VALS = [0.0, 1e-4, 1e-3, 1e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1.0, 2.0]
+
+
+def f32_to_bf16_u16(x: float) -> int:
+    """float32 -> bf16 (truncate) -> u16"""
+    u32 = struct.unpack("<I", struct.pack("<f", x))[0]
+    return (u32 >> 16) & 0xFFFF
+
+
+def make_soft_prefix_b64_constant(P: int, H: int, val: float) -> str:
+    """arrange bf16 little-endian u16 in P*H groups to create base64"""
+    u16 = f32_to_bf16_u16(val)
+    raw = struct.pack("<H", u16) * (P * H)
+    return base64.b64encode(raw).decode("ascii")
+
+
+def make_random_soft_prefix_b64() -> str:
+    """Generate random soft prefix for testing"""
+    v = random.choice(VALS)
+    return make_soft_prefix_b64_constant(P, H, v)
 
 
 def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
@@ -18,17 +45,20 @@ def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
 
     # Send first input
     print("\n1. Sending first input: 'こんにちは' (relay_count=0)")
-    client.send_message("/bi/input", [0, "こんにちは"])
+    sp1 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["こんにちは", sp1, 0])
     time.sleep(1.0)
 
     # Send second input
     print("\n2. Sending second input: '世界' (relay_count=0)")
-    client.send_message("/bi/input", [0, "世界"])
+    sp2 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["世界", sp2, 0])
     time.sleep(0.5)
 
     # Send third input
     print("\n3. Sending third input: 'よ' (relay_count=1)")
-    client.send_message("/bi/input", [1, "よ"])
+    sp3 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["よ", sp3, 1])
     time.sleep(0.5)
 
     # Check status
@@ -42,10 +72,12 @@ def test_bi_cycle(host: str = "192.168.151.31", port: int = 8000):
 
     # Send another round of inputs
     print("\n6. Sending new inputs for second cycle...")
-    client.send_message("/bi/input", [0, "静かな"])
+    sp4 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["静かな", sp4, 0])
     time.sleep(1.0)
 
-    client.send_message("/bi/input", [0, "夜"])
+    sp5 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["夜", sp5, 0])
     time.sleep(3.0)
 
     # Check status again
@@ -75,12 +107,14 @@ def test_relay_count_filtering(host: str = "192.168.151.31", port: int = 8000):
 
     # Send data with high relay count (should be filtered out)
     print("\n1. Sending data with relay_count=6 (should be rejected)...")
-    client.send_message("/bi/input", [6, "リレー回数が多すぎるデータ"])
+    sp1 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["リレー回数が多すぎるデータ", sp1, 6])
     time.sleep(0.5)
 
     # Send data with normal relay count (should be kept)
     print("\n2. Sending data with relay_count=0 (should be accepted)...")
-    client.send_message("/bi/input", [0, "正常なデータ"])
+    sp2 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["正常なデータ", sp2, 0])
     time.sleep(3.0)
 
     # Check status
@@ -112,12 +146,14 @@ def test_mixed_relay_counts(host: str = "192.168.151.31", port: int = 8000):
 
     # Send input with relay_count=0
     print("\n1. Sending input with relay_count=0...")
-    client.send_message("/bi/input", [0, "初期入力"])
+    sp1 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["初期入力", sp1, 0])
     time.sleep(1.0)
 
     # Send input with relay_count=3
     print("\n2. Sending input with relay_count=3...")
-    client.send_message("/bi/input", [3, "リレーされた入力"])
+    sp2 = make_random_soft_prefix_b64()
+    client.send_message("/bi/input", ["リレーされた入力", sp2, 3])
     time.sleep(3.0)
 
     # Check status

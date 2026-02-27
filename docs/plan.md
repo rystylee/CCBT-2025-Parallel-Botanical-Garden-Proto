@@ -79,10 +79,9 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
 ```python
 @dataclass
 class BIInputData:
+    soft_prefix_b64: str   # LLM推論用のsoft prefix（Base64エンコード済み）
     relay_count: int       # 伝達回数
     text: str              # 入力テキスト
-    source_type: str       # "HUMAN" or "BI"
-    lang: str              # 言語コード
 ```
 
 ---

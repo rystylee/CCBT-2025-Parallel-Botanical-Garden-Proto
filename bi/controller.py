@@ -8,7 +8,7 @@ from api.osc import OscClient
 from api.tts import StackFlowTTSClient
 
 from .models import BIInputData
-from .utils import P, make_random_soft_prefix_b64
+from .utils import P
 
 
 class BIController:
@@ -81,7 +81,8 @@ class BIController:
 
         # Generate 2-3 tokens with LLM
         try:
-            sp_b64 = make_random_soft_prefix_b64()
+            # Use soft_prefix_b64 from the latest input data
+            sp_b64 = self.input_buffer[-1].soft_prefix_b64
             generated_text = await self.llm_client.generate_text(
                 query=concatenated_text,
                 lang=self.config.get("common", {}).get("lang", "ja"),
@@ -121,12 +122,15 @@ class BIController:
         # Send generated text to target devices
         targets = self.config.get("targets", [])
 
-        # Use the lowest relay_count from buffer
+        # Use the lowest relay_count and soft_prefix_b64 from buffer
         lowest_relay_count = min(data.relay_count for data in self.input_buffer)
+        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64  # Use latest soft prefix
         logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
 
         try:
-            self.osc_client.send_to_all_targets(targets, "/bi/input", lowest_relay_count, self.generated_text)
+            self.osc_client.send_to_all_targets(
+                targets, "/bi/input", self.generated_text, soft_prefix_b64, lowest_relay_count
+            )
         except Exception as e:
             logger.error(f"Error sending to targets: {e}")
 
@@ -158,7 +162,7 @@ class BIController:
         """Concatenate input texts in received order"""
         return "".join([data.text for data in self.input_buffer])
 
-    def add_input(self, relay_count: int, text: str):
+    def add_input(self, text: str, soft_prefix_b64: str, relay_count: int):
         """Add input data to buffer with relay count filtering"""
         max_relay_count = self.config.get("cycle", {}).get("max_relay_count", 6)
 
@@ -176,11 +180,11 @@ class BIController:
         # Increment relay count for next transmission
         next_relay_count = relay_count + 1
 
-        data = BIInputData(relay_count=next_relay_count, text=text)
+        data = BIInputData(soft_prefix_b64=soft_prefix_b64, relay_count=next_relay_count, text=text)
         self.input_buffer.append(data)
         logger.info(
             f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
-            f"(buffer size: {len(self.input_buffer)})"
+            f"soft_prefix_b64={soft_prefix_b64[:30]}... (buffer size: {len(self.input_buffer)})"
         )
 
     async def _led_fade_up(self):

@@ -249,7 +249,7 @@ tmux attach -u -t ccbt-llm
 
 | エンドポイント | 引数 | 機能 |
 |------------|------|------|
-| `/bi/input` | timestamp, text, source_type, lang | 入力データ受付 |
+| `/bi/input` | text, soft_prefix_b64, relay_count | 入力データ受付 |
 | `/bi/stop` | なし | サイクル停止 |
 | `/bi/status` | なし | ステータス取得 |
 
@@ -257,10 +257,9 @@ tmux attach -u -t ccbt-llm
 
 ### `/bi/input` の引数
 
-- `timestamp` (float): UNIXタイムスタンプ（秒）
 - `text` (str): テキストデータ
-- `source_type` (str): "human" または "BI"
-- `lang` (str): 言語コード（`ja`, `en`, `zh`, `fr`）
+- `soft_prefix_b64` (str): LLM推論用のsoft prefix（Base64エンコード済みbf16データ）
+- `relay_count` (int): メッセージの伝達回数（0から始まる整数）
 
 ---
 
@@ -270,14 +269,16 @@ tmux attach -u -t ccbt-llm
 
 ```python
 from pythonosc import udp_client
-import time
 
 # クライアント作成
 client = udp_client.SimpleUDPClient("192.168.1.100", 8000)
 
 # 1. 入力データ送信
-timestamp = time.time()
-client.send_message("/bi/input", [timestamp, "こんにちは", "human", "ja"])
+# soft_prefix_b64は事前に生成されたBase64文字列
+text = "こんにちは"
+soft_prefix_b64 = "<base64_encoded_soft_prefix>"
+relay_count = 0
+client.send_message("/bi/input", [text, soft_prefix_b64, relay_count])
 
 # 2. ステータス確認
 client.send_message("/bi/status", [])
@@ -293,11 +294,14 @@ client.send_message("/bi/stop", [])
 別のマシンから稼働中のBIデバイスに/bi/inputメッセージを送信するスクリプト:
 
 ```bash
-# 基本的な使用方法（人間の入力として日本語テキストを送信）
+# 基本的な使用方法（relay_count=0、ランダムなsoft prefixで送信）
 python scripts/send_bi_input.py -H 192.168.1.100 -t "こんにちは"
 
-# BIからの入力として送信（英語）
-python scripts/send_bi_input.py -H 192.168.1.100 -t "Hello world" -s BI -l en
+# relay_countを指定して送信
+python scripts/send_bi_input.py -H 192.168.1.100 -t "Hello world" -r 2
+
+# カスタムsoft prefixを指定して送信
+python scripts/send_bi_input.py -H 192.168.1.100 -t "World" -s "<base64_string>"
 
 # カスタムポートを指定
 python scripts/send_bi_input.py -H 192.168.1.100 -p 9000 -t "世界"
