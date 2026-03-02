@@ -62,6 +62,7 @@ def main():
                         help="指定した機能だけテスト (カンマ区切り: led,audio,llm,tts)")
     parser.add_argument("--led-host", type=str, default="127.0.0.1", help="LED OSCサーバーホスト")
     parser.add_argument("--led-port", type=int, default=9000, help="LED OSCサーバーポート")
+    parser.add_argument("--led-bus", type=int, default=1, help="LED I2Cバス番号 (default: 1)")
     args = parser.parse_args()
 
     # テスト対象の決定
@@ -105,6 +106,7 @@ def main():
             sys.executable, "scripts/check_led.py",
             "--host", args.led_host,
             "--port", str(args.led_port),
+            "--bus", str(args.led_bus),
         ]
         results["LED点灯"] = run_check("LED", cmd, timeout=15)
         print()
@@ -162,25 +164,3 @@ def main():
             all_ok = False
 
     print()
-    if all_ok:
-        print("  全チェック OK ✓")
-    else:
-        failed = [name for name, ok in results.items() if not ok]
-        print(f"  失敗: {', '.join(failed)}")
-        print()
-        print("  トラブルシューティング:")
-        if "LED点灯" in failed:
-            print("    LED  → pca9685_osc_led_server.py が起動しているか確認")
-        if "音声出力" in failed:
-            print("    Audio → tinyplay が使用可能か / ALSAデバイスの設定を確認")
-        if "LLMテキスト生成" in failed:
-            print("    LLM  → systemctl restart llm-llm")
-        if "TTS音声合成" in failed:
-            print("    TTS  → systemctl restart llm-melotts && systemctl restart llm-openai-api")
-
-    print("=" * 60)
-    sys.exit(0 if all_ok else 1)
-
-
-if __name__ == "__main__":
-    main()
