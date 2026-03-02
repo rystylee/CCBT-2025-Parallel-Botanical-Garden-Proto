@@ -1,0 +1,37 @@
+[Unit]
+Description=CCBT BI Device Boot Check - 起動時全機能チェック
+# 依存サービスが起動した後に実行
+After=network.target llm-llm.service llm-melotts.service llm-openai-api.service
+# 依存サービスが無くてもチェック自体は実行する（失敗として記録）
+Wants=llm-llm.service llm-melotts.service llm-openai-api.service
+
+[Service]
+Type=oneshot
+# 起動時に1回だけ実行
+RemainAfterExit=yes
+
+# 実行ユーザー（環境に合わせて変更してください）
+User=m5stack
+Group=m5stack
+
+# 環境変数（必要に応じて変更）
+Environment=CCBT_PROJECT_DIR=/home/m5stack/CCBT-2025-Parallel-Botanical-Garden-Proto
+Environment=CCBT_LOG_DIR=/var/log/ccbt-bi-check
+Environment=CCBT_CHECK_LANG=ja
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/m5stack/.local/bin
+
+# 実行コマンド
+ExecStart=/home/m5stack/CCBT-2025-Parallel-Botanical-Garden-Proto/scripts/boot_check.sh
+
+# タイムアウト設定（全チェック完了まで最大5分）
+TimeoutStartSec=300
+
+# 失敗してもシステム起動をブロックしない
+SuccessExitStatus=0 1
+
+# ログ出力（journalctlでも確認可能に）
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
