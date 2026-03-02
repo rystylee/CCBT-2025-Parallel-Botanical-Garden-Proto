@@ -1,5 +1,4 @@
 import asyncio
-import time
 from typing import List
 
 from loguru import logger
@@ -9,7 +8,7 @@ from api.osc import OscClient
 from api.tts import StackFlowTTSClient
 
 from .models import BIInputData
-from .utils import P, make_random_soft_prefix_b64
+from .utils import P
 
 
 class BIController:
@@ -82,7 +81,8 @@ class BIController:
 
         # Generate 2-3 tokens with LLM
         try:
-            sp_b64 = make_random_soft_prefix_b64()
+            # Use soft_prefix_b64 from the latest input data
+            sp_b64 = self.input_buffer[-1].soft_prefix_b64
             generated_text = await self.llm_client.generate_text(
                 query=concatenated_text,
                 lang=self.config.get("common", {}).get("lang", "ja"),
@@ -107,17 +107,29 @@ class BIController:
             self.state = "RESTING"
             return
 
+        # LED fade up before TTS
+        await self._led_fade_up()
+
+        # Play TTS (all inputs + generated)
+        try:
+            await self.tts_client.speak_to_file(self.tts_text)
+        except Exception as e:
+            logger.error(f"Error in TTS: {e}")
+        finally:
+            # LED fade down after TTS
+            await self._led_fade_down()
+
         # Send generated text to target devices
         targets = self.config.get("targets", [])
-        lang = self.config.get("common", {}).get("lang", "ja")
 
-        # Use the newest timestamp from buffer
-        newest_timestamp = max(data.timestamp for data in self.input_buffer)
-        logger.debug(f"Using newest timestamp from buffer: {newest_timestamp}")
+        # Use the lowest relay_count and soft_prefix_b64 from buffer
+        lowest_relay_count = min(data.relay_count for data in self.input_buffer)
+        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64  # Use latest soft prefix
+        logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
 
         try:
             self.osc_client.send_to_all_targets(
-                targets, "/bi/input", newest_timestamp, self.generated_text, "BI", lang  # source_type
+                targets, "/bi/input", self.generated_text, soft_prefix_b64, lowest_relay_count
             )
         except Exception as e:
             logger.error(f"Error sending to targets: {e}")
@@ -135,12 +147,6 @@ class BIController:
             except Exception as e:
                 logger.error(f"Error sending to Mixer PC: {e}")
 
-        # Play TTS (all inputs + generated)
-        try:
-            self.tts_client.speak(self.tts_text)
-        except Exception as e:
-            logger.error(f"Error in TTS: {e}")
-
         # Clear buffer
         self.input_buffer.clear()
         self.state = "RESTING"
@@ -153,26 +159,101 @@ class BIController:
         self.state = "RECEIVING"
 
     def _concatenate_inputs(self) -> str:
-        """Concatenate input texts in chronological order"""
-        sorted_data = sorted(self.input_buffer, key=lambda x: x.timestamp)
-        return "".join([data.text for data in sorted_data])
+        """Concatenate input texts in received order"""
+        return "".join([data.text for data in self.input_buffer])
 
-    def add_input(self, timestamp: float, text: str, source_type: str, lang: str):
-        """Add input data to buffer with immediate filtering"""
-        current_time = time.time()
-        max_age = self.config.get("cycle", {}).get("max_data_age", 60.0)
+    def add_input(self, text: str, soft_prefix_b64: str, relay_count: int):
+        """Add input data to buffer with relay count filtering"""
+        max_relay_count = self.config.get("cycle", {}).get("max_relay_count", 6)
 
-        # Check timestamp immediately - reject old data
-        if (current_time - timestamp) > max_age:
+        # Enhanced logging for debugging relay count
+        logger.debug(f"Relay count check: received={relay_count}, max_relay_count={max_relay_count}")
+
+        # Check relay count immediately - reject data exceeding limit
+        if relay_count >= max_relay_count:
             logger.warning(
-                f"Rejected old data: timestamp={timestamp}, age={current_time - timestamp:.2f}s, "
-                f"source={source_type}, text='{text[:20]}...'"
+                f"Rejected data exceeding relay limit: relay_count={relay_count}, "
+                f"max_relay_count={max_relay_count}, text='{text[:20]}...'"
             )
             return
 
-        data = BIInputData(timestamp=timestamp, text=text, source_type=source_type, lang=lang)
+        # Increment relay count for next transmission
+        next_relay_count = relay_count + 1
+
+        data = BIInputData(soft_prefix_b64=soft_prefix_b64, relay_count=next_relay_count, text=text)
         self.input_buffer.append(data)
-        logger.info(f"Added input: {source_type} '{text[:20]}...' " f"(buffer size: {len(self.input_buffer)})")
+        logger.info(
+            f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
+            f"soft_prefix_b64={soft_prefix_b64[:30]}... (buffer size: {len(self.input_buffer)})"
+        )
+
+    async def _led_fade_up(self):
+        """Fade LED up (0.0 -> 1.0) before TTS starts"""
+        led_config = self.config.get("led_control", {})
+
+        # Check if LED control is enabled
+        if not led_config.get("enabled", False):
+            logger.debug("LED control is disabled")
+            return
+
+        targets = led_config.get("targets", [])
+        if not targets:
+            logger.debug("No LED control targets configured")
+            return
+
+        steps = led_config.get("fade_steps", 40)
+        duration = led_config.get("fade_up_duration", 2.0)
+        dt = duration / steps
+
+        logger.info(f"LED fade up: steps={steps}, duration={duration}s")
+
+        # Send fade up messages to all targets
+        for i in range(steps + 1):
+            value = i / steps
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led", value)
+                except Exception as e:
+                    logger.error(f"Failed to send LED fade up to {target}: {e}")
+
+            if i < steps:  # Don't sleep after the last step
+                await asyncio.sleep(dt)
+
+        logger.debug("LED fade up complete")
+
+    async def _led_fade_down(self):
+        """Fade LED down (1.0 -> 0.0) after TTS ends"""
+        led_config = self.config.get("led_control", {})
+
+        # Check if LED control is enabled
+        if not led_config.get("enabled", False):
+            logger.debug("LED control is disabled")
+            return
+
+        targets = led_config.get("targets", [])
+        if not targets:
+            logger.debug("No LED control targets configured")
+            return
+
+        steps = led_config.get("fade_steps", 40)
+        duration = led_config.get("fade_down_duration", 2.0)
+        dt = duration / steps
+
+        logger.info(f"LED fade down: steps={steps}, duration={duration}s")
+
+        # Send fade down messages to all targets
+        for i in range(steps, -1, -1):
+            value = i / steps
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led", value)
+                except Exception as e:
+                    logger.error(f"Failed to send LED fade down to {target}: {e}")
+
+            if i > 0:  # Don't sleep after the last step
+                await asyncio.sleep(dt)
+
+        logger.debug("LED fade down complete")
 
     def get_status(self) -> dict:
         """Get current status"""

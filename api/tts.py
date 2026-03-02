@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -46,14 +47,32 @@ def tts_generate_wav(text: str, model: str, output_path: str, api_url: str = "ht
     ) as response:
         response.stream_to_file(output_path)
 
+    # Verify the generated file
+    import os
+
+    if os.path.exists(output_path):
+        file_size = os.path.getsize(output_path)
+        logger.debug(f"Generated file size: {file_size} bytes")
+
+        # Read first few bytes to check file format
+        with open(output_path, "rb") as f:
+            header = f.read(16)
+            logger.debug(f"File header (first 16 bytes): {header.hex()}")
+
+            # Check if it's a valid WAV file (should start with "RIFF")
+            if not header.startswith(b"RIFF"):
+                logger.warning("Generated file does not have RIFF header - may not be a valid WAV file")
+    else:
+        logger.error(f"Output file not created: {output_path}")
+
     logger.info(f"WAV file generated: {output_path}")
 
 
 def ffmpeg_convert_for_tinyplay(
     input_path: str,
     output_path: str,
-    sample_rate: int = 16000,
-    channels: int = 1,
+    sample_rate: int = 32000,
+    channels: int = 2,
     sample_format: str = "s16",
     quiet: bool = True,
 ) -> None:
@@ -101,8 +120,8 @@ def ffmpeg_convert_for_tinyplay(
 def ffmpeg_convert_for_tinyplay_with_rumble(
     input_path: str,
     output_path: str,
-    sample_rate: int = 16000,
-    channels: int = 1,
+    sample_rate: int = 48000,
+    channels: int = 2,
     sample_format: str = "s16",
     pitch_steps: float = -16.0,
     sub_oct_mix: float = 0.55,
@@ -287,7 +306,7 @@ class StackFlowTTSClient:
         response = receive_response(self.sock, timeout=10.0)
         logger.debug(f"tts response: {response}")
 
-    async def speak_to_file(self, text: str) -> None:
+    async def speak_to_file(self, text: str, on_start_callback=None, on_end_callback=None) -> None:
         """
         Generate WAV file from text and play it using tinyplay.
 
@@ -296,6 +315,8 @@ class StackFlowTTSClient:
 
         Args:
             text: Text to synthesize
+            on_start_callback: Optional callback to call before tinyplay starts (args: text)
+            on_end_callback: Optional callback to call after tinyplay ends (args: text, error)
 
         Raises:
             Exception: WAV generation, conversion, or playback failed
@@ -306,8 +327,8 @@ class StackFlowTTSClient:
         temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
         enable_ffmpeg = audio_config.get("enable_ffmpeg_convert", True)
         enable_rumble = audio_config.get("enable_rumble_effect", False)
-        sample_rate = audio_config.get("sample_rate", 16000)
-        channels = audio_config.get("channels", 1)
+        sample_rate = audio_config.get("sample_rate", 48000)
+        channels = audio_config.get("channels", 2)
         sample_format = audio_config.get("sample_format", "s16")
         tinyplay_card = audio_config.get("tinyplay_card", 0)
         tinyplay_device = audio_config.get("tinyplay_device", 1)
@@ -331,7 +352,8 @@ class StackFlowTTSClient:
                 logger.info("Converting WAV file with FFmpeg...")
                 if enable_rumble:
                     # Get advanced rumble parameters from config
-                    pitch_steps = audio_config.get("rumble_pitch_steps", -16.0)
+                    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
+                    pitch_steps = random.uniform(pitch_range["min"], pitch_range["max"])
                     sub_oct_mix = audio_config.get("rumble_sub_oct_mix", 0.55)
                     rumble_mix = audio_config.get("rumble_mix", 0.25)
                     rumble_base_hz = audio_config.get("rumble_base_hz", 55.0)
@@ -355,7 +377,7 @@ class StackFlowTTSClient:
                     ffmpeg_convert_for_tinyplay(
                         raw_wav_path,
                         final_wav_path,
-                        sample_rate,
+                        32000,
                         channels,
                         sample_format,
                     )
@@ -365,12 +387,36 @@ class StackFlowTTSClient:
 
             # Step 3: Play WAV file using tinyplay
             logger.info("Playing WAV file with tinyplay...")
+
+            # Call on_start_callback before tinyplay starts
+            if on_start_callback:
+                try:
+                    on_start_callback(text)
+                except Exception as e:
+                    logger.error(f"on_start_callback failed: {e}")
+
+            # Execute tinyplay
             tinyplay_play(playback_path, tinyplay_card, tinyplay_device)
+
+            # Call on_end_callback after tinyplay ends successfully
+            if on_end_callback:
+                try:
+                    on_end_callback(text, error=False)
+                except Exception as e:
+                    logger.error(f"on_end_callback failed: {e}")
 
             logger.info("TTS playback completed successfully")
 
         except Exception as e:
             logger.error(f"TTS speak_to_file failed: {e}")
+
+            # Call on_end_callback with error flag
+            if on_end_callback:
+                try:
+                    on_end_callback(text, error=True)
+                except Exception as callback_error:
+                    logger.error(f"on_end_callback (error case) failed: {callback_error}")
+
             raise
 
         finally:

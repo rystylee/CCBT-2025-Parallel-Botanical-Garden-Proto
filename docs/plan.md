@@ -9,9 +9,9 @@
 ### 1.2 v2.0の主要機能
 - サイクル駆動型の動作モデル
 - 分散複数デバイス対応
-- バッファリング＋時系列連結処理
+- バッファリング＋受信順連結処理
 - 短文生成（2~3トークン）
-- タイムスタンプ管理
+- 伝達回数管理
 
 ---
 
@@ -62,8 +62,8 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
      ┌─────────────┐
      │   OUTPUT    │
      │ ・バッファ確認│
+     │ ・TTS生成   │
      │ ・OSC送信   │
-     │ ・TTS再生   │
      └──────┬──────┘
             ↓
      ┌─────────────┐
@@ -79,10 +79,9 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
 ```python
 @dataclass
 class BIInputData:
-    timestamp: float        # UNIX timestamp
+    soft_prefix_b64: str   # LLM推論用のsoft prefix（Base64エンコード済み）
+    relay_count: int       # 伝達回数
     text: str              # 入力テキスト
-    source_type: str       # "human" or "BI"
-    lang: str             # 言語コード
 ```
 
 ---
@@ -104,13 +103,13 @@ class BIInputData:
 - [x] `/mixer` - Mixer PCへの生成テキスト送信
 
 ### 3.3 設定ファイル（✅ 完了）
-- [x] サイクル設定（receive_duration, rest_duration, max_data_age）
+- [x] サイクル設定（receive_duration, rest_duration, max_relay_count）
 - [x] ターゲットデバイスリスト（networks.csv）
 - [x] Mixer PC設定（host, port）
 
 ### 3.4 データフィルタリング（✅ 完了）
-- [x] タイムスタンプによる古いデータ破棄
-- [x] 時系列順データ連結
+- [x] 伝達回数による上限チェックとデータ破棄
+- [x] 受信順データ連結
 
 ---
 
@@ -129,7 +128,7 @@ class BIInputData:
 ### 4.3 状態管理
 - BIControllerの状態遷移管理
 - 入力バッファの適切なクリア
-- タイムスタンプベースのデータ有効期限管理
+- 伝達回数ベースのデータ有効期限管理
 
 ---
 
@@ -169,17 +168,24 @@ class BIInputData:
 
 #### 6.3.1 処理フロー
 ```
+OUTPUT Phase:
 1. OpenAI互換API経由でWAVファイル生成（/tmp/tts_output.wav）
    ↓
 2. FFmpeg変換（オプション）
    - tinyplay互換フォーマットに変換（sample_rate, channels, sample_format）
    - ランブルエフェクト適用（オプション）
    ↓
-3. tinyplayコマンドで再生
+3. tinyplayコマンドで再生（非同期）
    - カード・デバイス番号指定
    ↓
-4. 一時ファイル削除
+4. OSC送信（TTS生成完了後）
+   - BIデバイス間通信（/bi/input）
+   - Mixer PC送信（/mixer）
+   ↓
+5. 一時ファイル削除
 ```
+
+**重要**: TTS音声生成とtinyplay再生をOSC送信の前に実行することで、音声生成の完了を保証してからネットワーク送信を行います。
 
 #### 6.3.2 実装対象ファイル
 

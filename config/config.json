@@ -6,7 +6,7 @@
   "cycle": {
     "receive_duration": 3.0,
     "rest_duration": 1.0,
-    "max_data_age": 60.0
+    "max_relay_count": 6
   },
   "osc": {
     "receive_port": 8000
@@ -26,17 +26,29 @@
   "audio": {
     "tinyplay_card": 0,
     "tinyplay_device": 1,
-    "sample_rate": 16000,
-    "channels": 1,
+    "sample_rate": 48000,
+    "channels": 2,
     "sample_format": "s16",
     "enable_ffmpeg_convert": true,
     "enable_rumble_effect": true,
     "temp_wav_dir": "./tmp",
-    "rumble_pitch_steps": -16.0,
+    "rumble_pitch_steps_range": {"min": -16.0, "max": -3.0},
     "rumble_sub_oct_mix": 0.55,
     "rumble_mix": 0.25,
     "rumble_base_hz": 55.0,
     "rumble_drive": 0.55,
     "rumble_xover_hz": 280.0
+  },
+  "led_control": {
+    "enabled": true,
+    "targets": [
+      {
+        "host": "127.0.0.1",
+        "port": 9000
+      }
+    ],
+    "fade_steps": 40,
+    "fade_up_duration": 2.0,
+    "fade_down_duration": 2.0
   }
 }
