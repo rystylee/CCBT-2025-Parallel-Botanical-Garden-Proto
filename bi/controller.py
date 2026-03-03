@@ -75,6 +75,9 @@ class BIController:
             self.state = "RESTING"
             return
 
+        # LED fade up at the start of active processing
+        await self._led_fade_up()
+
         # Concatenate inputs in chronological order
         concatenated_text = self._concatenate_inputs()
         logger.info(f"Concatenated text: {concatenated_text}")
@@ -95,54 +98,29 @@ class BIController:
             self.state = "OUTPUT"
         except Exception as e:
             logger.error(f"Error in generation: {e}")
+            # Generation failed - fade down LED before resting
+            await self._led_fade_down()
             self.state = "RESTING"
 
     async def _output_phase(self):
-        """Phase 3: Send output and play TTS"""
+        """Phase 3: Play TTS and send output (LED is already on from generating phase)"""
         logger.info("OUTPUT phase started")
 
         # Skip output if buffer is empty
         if not self.input_buffer:
             logger.warning("Empty buffer in output phase, skipping output")
+            await self._led_fade_down()
             self.state = "RESTING"
             return
 
-        # Step 1: Prepare WAV file (silent, no LED)
-        wav_path = None
+        # Play TTS
         try:
-            wav_path = await self.tts_client.prepare_wav(self.tts_text)
+            await self.tts_client.speak_to_file(self.tts_text)
         except Exception as e:
-            logger.error(f"Error in WAV preparation: {e}")
+            logger.error(f"Error in TTS: {e}")
 
-        if wav_path:
-            proc = None
-            try:
-                # Step 2: Start tinyplay (non-blocking)
-                proc = self.tts_client.start_playback(wav_path)
-
-                # Step 3: LED fade up while audio is playing
-                await self._led_fade_up()
-
-                # Step 4: Wait for tinyplay to finish
-                while proc.poll() is None:
-                    await asyncio.sleep(0.05)
-
-                if proc.returncode != 0:
-                    stderr = proc.stderr.read().decode() if proc.stderr else ""
-                    logger.error(f"tinyplay failed (rc={proc.returncode}): {stderr}")
-                else:
-                    logger.info("tinyplay playback completed")
-
-            except Exception as e:
-                logger.error(f"Error in playback/LED: {e}")
-                if proc and proc.poll() is None:
-                    proc.kill()
-            finally:
-                # Step 5: LED fade down
-                await self._led_fade_down()
-                self.tts_client.cleanup_wav(wav_path)
-        else:
-            logger.warning("No WAV file generated, skipping playback")
+        # LED fade down after playback
+        await self._led_fade_down()
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])
