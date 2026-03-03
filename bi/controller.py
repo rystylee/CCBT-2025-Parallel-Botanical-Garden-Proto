@@ -75,8 +75,8 @@ class BIController:
             self.state = "RESTING"
             return
 
-        # LED on at the start of active processing
-        self._led_on()
+        # LED fade up at the start of active processing
+        await self._led_fade_up()
 
         # Concatenate inputs in chronological order
         concatenated_text = self._concatenate_inputs()
@@ -98,8 +98,8 @@ class BIController:
             self.state = "OUTPUT"
         except Exception as e:
             logger.error(f"Error in generation: {e}")
-            # Generation failed - turn off LED before resting
-            self._led_off()
+            # Generation failed - fade down LED before resting
+            await self._led_fade_down()
             self.state = "RESTING"
 
     async def _output_phase(self):
@@ -109,7 +109,7 @@ class BIController:
         # Skip output if buffer is empty
         if not self.input_buffer:
             logger.warning("Empty buffer in output phase, skipping output")
-            self._led_off()
+            await self._led_fade_down()
             self.state = "RESTING"
             return
 
@@ -119,8 +119,8 @@ class BIController:
         except Exception as e:
             logger.error(f"Error in TTS: {e}")
 
-        # LED off after playback
-        self._led_off()
+        # LED fade down after playback
+        await self._led_fade_down()
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])
@@ -190,37 +190,65 @@ class BIController:
             f"soft_prefix_b64={soft_prefix_b64[:30]}... (buffer size: {len(self.input_buffer)})"
         )
 
-    def _led_on(self):
-        """Turn LED on (send single /led 1.0 message, fade handled by LED server)"""
+    async def _led_fade_up(self):
+        """Fade LED up (0.0 -> 1.0) using config parameters"""
         led_config = self.config.get("led_control", {})
 
         if not led_config.get("enabled", False):
             return
 
         targets = led_config.get("targets", [])
-        for target in targets:
-            try:
-                self.osc_client.send_to_target(target, "/led", 1.0)
-            except Exception as e:
-                logger.error(f"Failed to send LED on to {target}: {e}")
+        if not targets:
+            return
 
-        logger.info("LED on sent")
+        steps = led_config.get("fade_steps", 40)
+        duration = led_config.get("fade_up_duration", 2.0)
+        dt = duration / steps
 
-    def _led_off(self):
-        """Turn LED off (send single /led 0.0 message, fade handled by LED server)"""
+        logger.info(f"LED fade up: steps={steps}, duration={duration}s")
+
+        for i in range(steps + 1):
+            value = i / steps
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led", value)
+                except Exception as e:
+                    logger.error(f"Failed to send LED fade up to {target}: {e}")
+
+            if i < steps:
+                await asyncio.sleep(dt)
+
+        logger.debug("LED fade up complete")
+
+    async def _led_fade_down(self):
+        """Fade LED down (1.0 -> 0.0) using config parameters"""
         led_config = self.config.get("led_control", {})
 
         if not led_config.get("enabled", False):
             return
 
         targets = led_config.get("targets", [])
-        for target in targets:
-            try:
-                self.osc_client.send_to_target(target, "/led", 0.0)
-            except Exception as e:
-                logger.error(f"Failed to send LED off to {target}: {e}")
+        if not targets:
+            return
 
-        logger.info("LED off sent")
+        steps = led_config.get("fade_steps", 40)
+        duration = led_config.get("fade_down_duration", 2.0)
+        dt = duration / steps
+
+        logger.info(f"LED fade down: steps={steps}, duration={duration}s")
+
+        for i in range(steps, -1, -1):
+            value = i / steps
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led", value)
+                except Exception as e:
+                    logger.error(f"Failed to send LED fade down to {target}: {e}")
+
+            if i > 0:
+                await asyncio.sleep(dt)
+
+        logger.debug("LED fade down complete")
 
     def get_status(self) -> dict:
         """Get current status"""
