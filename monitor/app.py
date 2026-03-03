@@ -21,7 +21,7 @@ LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
 SSH_PASS = getpass.getpass("SSH Password: ")
 TMUX_SESSION = "bi_main"
-SCRIPT_CMD = f"cd {GIT_DIR} && (git stash || true) && git pull && uv run python main.py"
+SCRIPT_CMD = f"cd {GIT_DIR} && git stash; git pull && uv run python main.py"
 SEND_SCRIPT = "/home/yuma/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/scripts/send_bi_input.py"
 
 PAGES = ["system", "led", "sound", "run"]
@@ -162,7 +162,9 @@ def _run_start_worker(num):
         ip = node_ip(num)
         ssh_run(ip, f"tmux kill-session -t {TMUX_SESSION} 2>/dev/null", timeout=5)
         time.sleep(0.3)
-        code, out, err = ssh_run(ip, f"tmux new-session -d -s {TMUX_SESSION} '{SCRIPT_CMD}'", timeout=30)
+        # remain-on-exit をつけて作成（コマンド終了後もセッション維持）
+        cmd = f"tmux new-session -d -s {TMUX_SESSION} \\; set remain-on-exit on \\; send-keys '{SCRIPT_CMD}' Enter"
+        code, out, err = ssh_run(ip, cmd, timeout=30)
         if code == 0: set_job(page, num, "ok", "tmux started")
         else: set_job(page, num, "error", (err or out)[:24] or "start fail")
     except subprocess.TimeoutExpired:
