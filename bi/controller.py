@@ -107,17 +107,28 @@ class BIController:
             self.state = "RESTING"
             return
 
-        # LED fade up before TTS
-        await self._led_fade_up()
-
-        # Play TTS (all inputs + generated)
+        # Step 1: Prepare WAV file (silent, no LED)
+        wav_path = None
         try:
-            await self.tts_client.speak_to_file(self.tts_text)
+            wav_path = await self.tts_client.prepare_wav(self.tts_text)
         except Exception as e:
-            logger.error(f"Error in TTS: {e}")
-        finally:
-            # LED fade down after TTS
-            await self._led_fade_down()
+            logger.error(f"Error in WAV preparation: {e}")
+
+        # Step 2: Play audio + LED fade up concurrently
+        if wav_path:
+            try:
+                await asyncio.gather(
+                    self._led_fade_up(),
+                    self.tts_client.play_wav(wav_path),
+                )
+            except Exception as e:
+                logger.error(f"Error in playback/LED: {e}")
+            finally:
+                # Step 3: LED fade down after playback ends
+                await self._led_fade_down()
+                self.tts_client.cleanup_wav(wav_path)
+        else:
+            logger.warning("No WAV file generated, skipping playback")
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])
