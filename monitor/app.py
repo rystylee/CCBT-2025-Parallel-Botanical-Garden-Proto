@@ -21,7 +21,7 @@ LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
 SSH_PASS = getpass.getpass("SSH Password: ")
 TMUX_SESSION = "bi_main"
-SCRIPT_CMD = f"cd {GIT_DIR} && git stash && git pull && uv run python main.py"
+SCRIPT_CMD = f"cd {GIT_DIR} && (git stash || true) && git pull && uv run python main.py"
 SEND_SCRIPT = "/home/yuma/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/scripts/send_bi_input.py"
 
 PAGES = ["system", "led", "sound", "run"]
