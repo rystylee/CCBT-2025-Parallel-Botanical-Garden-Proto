@@ -10,11 +10,51 @@ from pca9685_osc_led_server import start_led_server
 from utils import load_network_config
 
 
+DEVICE_ID_FILE = "/etc/ccbt-device-id"
+NETWORK_INTERFACES = "/etc/network/interfaces"
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_path", type=str, default="config/config.json")
-    parser.add_argument("--device-id", type=int, required=True, help="Device ID (e.g. 61)")
+    parser.add_argument("--device-id", type=int, default=None,
+                        help="Device ID (e.g. 61). If omitted, auto-detected from network config")
     return parser.parse_args()
+
+
+def resolve_device_id(cli_value: int | None) -> int:
+    """Resolve device ID from CLI argument, /etc/ccbt-device-id, or /etc/network/interfaces."""
+    if cli_value is not None:
+        return cli_value
+
+    # Try /etc/ccbt-device-id
+    try:
+        with open(DEVICE_ID_FILE, "r") as f:
+            device_id = int(f.read().strip())
+            logger.info(f"Read device_id={device_id} from {DEVICE_ID_FILE}")
+            return device_id
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # Try /etc/network/interfaces (parse "address 10.0.0.XX")
+    try:
+        with open(NETWORK_INTERFACES, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("address 10.0.0."):
+                    device_id = int(line.split(".")[-1])
+                    logger.info(f"Read device_id={device_id} from {NETWORK_INTERFACES}")
+                    return device_id
+    except (FileNotFoundError, ValueError):
+        pass
+
+    raise SystemExit(
+        "Error: Could not determine device_id.\n"
+        "  - No --device-id argument\n"
+        f"  - {DEVICE_ID_FILE} not found\n"
+        f"  - No 'address 10.0.0.X' in {NETWORK_INTERFACES}\n"
+        "Run: uv run python main.py --device-id <ID>"
+    )
 
 
 async def async_main():
@@ -23,8 +63,8 @@ async def async_main():
     with open(opt.config_path, mode="r", encoding="utf-8") as f:
         config = json.load(f)
 
-    # Device ID from CLI argument
-    device_id = opt.device_id
+    # Device ID from CLI argument or /etc/ccbt-device-id
+    device_id = resolve_device_id(opt.device_id)
     csv_path = config.get("network", {}).get("csv_path", "config/networks.csv")
 
     logger.info(f"Loading network config for device ID {device_id} from {csv_path}")
