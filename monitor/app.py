@@ -431,74 +431,246 @@ build();poll();setInterval(poll,1500);
 
 # ── Page 4: RUN SCRIPTS ──────────────────────────────────────────────────────
 def make_run_html():
-    nav = make_nav("run")
-    return f"""<!DOCTYPE html><html lang="ja"><head>
+    nav = ""
+    tabs = [("/","system","01 SYSTEM"),("/led","led","02 LED"),("/sound","sound","03 SOUND"),("/run","run","04 RUN")]
+    for url, pid, label in tabs:
+        active = ' class="nt on"' if pid == "run" else ' class="nt"'
+        nav += f'<a href="{url}"{active}>{label}</a>'
+
+    return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>BI MONITOR - RUN SCRIPTS</title>
+<title>BI MONITOR — RUN SCRIPTS</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500;700&display=swap" rel="stylesheet">
 <style>
 {SHARED_CSS}
-.test-panel{{margin:0 20px 10px;padding:12px 16px;border:1px solid var(--border);background:var(--panel);display:flex;gap:10px;align-items:center;flex-wrap:wrap;}}
+/* == run page extras == */
+.test-panel{{
+  margin:0 20px 10px;padding:12px 16px;border:1px solid var(--border);background:var(--panel);
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+}}
 .test-panel label{{font-family:'Share Tech Mono',monospace;font-size:.7rem;color:var(--a2);}}
-.test-panel input[type=number]{{width:60px;padding:5px 8px;background:#0a0a0f;border:1px solid var(--border);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.72rem;}}
-.test-panel input[type=text]{{flex:1;min-width:200px;padding:5px 10px;background:#0a0a0f;border:1px solid var(--border);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.72rem;}}
+.test-panel input[type=number]{{
+  width:60px;padding:5px 8px;background:#0a0a0f;border:1px solid var(--border);
+  color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.72rem;
+}}
+.test-panel input[type=text]{{
+  flex:1;min-width:200px;padding:5px 10px;background:#0a0a0f;border:1px solid var(--border);
+  color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.72rem;
+}}
 .test-panel input:focus{{outline:none;border-color:var(--a2);}}
-.test-result{{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--dim);margin:0 20px 6px;padding:4px 10px;}}
-.test-result.ok{{color:var(--ok);}}.test-result.err{{color:var(--ng);}}
-.log-toggle{{font-family:'Share Tech Mono',monospace;font-size:.58rem;padding:3px 8px;border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;transition:all .12s;}}
-.log-toggle:hover{{border-color:var(--a2);color:var(--a2);}}.log-toggle.active{{border-color:var(--a2);color:var(--a2);}}
-.log-area{{display:none;margin:0;padding:0;border-top:1px solid var(--border);}}.log-area.open{{display:block;}}
-.log-inner{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1px;background:var(--border);}}
+.test-result{{
+  font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--dim);
+  margin:0 20px 6px;padding:4px 10px;
+}}
+.test-result.ok{{color:var(--ok);}}
+.test-result.err{{color:var(--ng);}}
+.log-toggle{{
+  font-family:'Share Tech Mono',monospace;font-size:.58rem;padding:3px 8px;
+  border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;
+  transition:all .12s;
+}}
+.log-toggle:hover{{border-color:var(--a2);color:var(--a2);}}
+.log-toggle.active{{border-color:var(--a2);color:var(--a2);}}
+.log-area{{
+  display:none;margin:0;padding:0;border-top:1px solid var(--border);
+}}
+.log-area.open{{display:block;}}
+.log-inner{{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1px;background:var(--border);
+}}
 .log-node{{background:#0a0a0f;padding:6px 8px;min-height:80px;}}
-.log-node-hd{{font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--accent);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;}}
-.log-node-hd .refresh-btn{{font-size:.5rem;padding:1px 5px;border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;}}
+.log-node-hd{{
+  font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--accent);
+  margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;
+}}
+.log-node-hd .refresh-btn{{
+  font-size:.5rem;padding:1px 5px;border:1px solid var(--border);background:transparent;
+  color:var(--dim);cursor:pointer;
+}}
 .log-node-hd .refresh-btn:hover{{border-color:var(--a2);color:var(--a2);}}
-.log-text{{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:#b0b0d0;white-space:pre-wrap;word-break:break-all;line-height:1.4;max-height:150px;overflow-y:auto;}}
-</style></head><body>
-<header><div><h1>&#9672; BI MONITOR</h1><div class="sub">スクリプト実行 (tmux) \u2014 SSH切断後も継続</div></div><nav>{nav}</nav></header>
+.log-text{{
+  font-family:'Share Tech Mono',monospace;font-size:.5rem;color:#b0b0d0;
+  white-space:pre-wrap;word-break:break-all;line-height:1.4;max-height:150px;overflow-y:auto;
+}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>&#9672; BI MONITOR</h1><div class="sub">スクリプト実行 (tmux) — SSH切断後も継続</div></div>
+  <nav>{nav}</nav>
+</header>
+
+<!-- toolbar -->
 <div class="toolbar">
   <button class="btn bp" onclick="runNums('run_start',allNums())">&#9654; START ALL</button>
-  <button class="btn bd" onclick="if(confirm('\u5168\u30ce\u30fc\u30c9\u306e\u30b9\u30af\u30ea\u30d7\u30c8\u3092\u505c\u6b62\u3057\u307e\u3059\u304b?'))runNums('run_stop',allNums())">&#9632; STOP ALL</button>
+  <button class="btn bd" onclick="if(confirm('全ノードのスクリプトを停止しますか?'))runNums('run_stop',allNums())">&#9632; STOP ALL</button>
   <button class="btn b2" onclick="runNums('run_check',allNums())">&#8635; CHECK ALL</button>
   <button class="btn" onclick="resetNums(allNums())">RESET</button>
-  <div style="flex:1"></div><span class="btn" id="summary" style="cursor:default;border-color:transparent">\u2014</span>
+  <div style="flex:1"></div>
+  <span class="btn" id="summary" style="cursor:default;border-color:transparent">—</span>
 </div>
-<div class="test-panel"><label>SEND TEST:</label><label>NODE</label>
+
+<!-- test command panel -->
+<div class="test-panel">
+  <label>SEND TEST:</label>
+  <label>NODE</label>
   <input type="number" id="testNum" value="1" min="1" max="100">
-  <input type="text" id="testText" placeholder="\u30c6\u30ad\u30b9\u30c8\u3092\u5165\u529b..." value="\u68ee\u6797\u306e\u5965\u6df1\u304f\u306b\u306f">
-  <button class="btn b2" onclick="sendTest()">SEND</button></div>
+  <input type="text" id="testText" placeholder="テキストを入力... (例: 森林の奥深くには)" value="森林の奥深くには">
+  <button class="btn b2" onclick="sendTest()">SEND</button>
+</div>
 <div class="test-result" id="testResult"></div>
-<div class="clusters" id="clusters"></div><div class="footer" id="footer"></div>
+
+<!-- clusters -->
+<div class="clusters" id="clusters"></div>
+<div class="footer" id="footer"></div>
+
 <script>
 const PAGE='run';
 const CL=Array.from({{length:10}},(_,i)=>({{s:i*10+1,e:i*10+10,l:`CLUSTER ${{String(i+1).padStart(2,'0')}} \u2014 NODE ${{i*10+1}}\u2013${{i*10+10}}`}}));
 let J={{}};
+
 function allNums(){{return Array.from({{length:100}},(_,i)=>i+1);}}
 function clNums(ci){{const cl=CL[ci];return Array.from({{length:10}},(_,i)=>cl.s+i);}}
+
 async function runNums(action,nums){{await fetch('/api/run',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action,page:PAGE,nums}})}});}}
 async function resetNums(nums){{await fetch('/api/reset',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{page:PAGE,nums}})}});await poll();}}
-async function sendTest(){{const num=document.getElementById('testNum').value;const text=document.getElementById('testText').value;const el=document.getElementById('testResult');el.className='test-result';el.textContent=`sending to NODE ${{num}} ...`;try{{const r=await fetch('/api/send_test',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{num,text}})}});const d=await r.json();if(d.ok){{el.className='test-result ok';el.textContent=`NODE ${{num}}: OK ${{d.stdout}}`;}}else{{el.className='test-result err';el.textContent=`NODE ${{num}}: ERR ${{d.stderr||d.stdout}}`;}}}}catch(e){{el.className='test-result err';el.textContent='Error: '+e;}}}}
+
+// === テストコマンド ===
+async function sendTest(){{
+  const num=document.getElementById('testNum').value;
+  const text=document.getElementById('testText').value;
+  const el=document.getElementById('testResult');
+  el.className='test-result';el.textContent=`sending to NODE ${{num}} ...`;
+  try{{
+    const r=await fetch('/api/send_test',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{num,text}})}});
+    const d=await r.json();
+    if(d.ok){{el.className='test-result ok';el.textContent=`NODE ${{num}}: OK ${{d.stdout}}`;}}
+    else{{el.className='test-result err';el.textContent=`NODE ${{num}}: ERR ${{d.stderr||d.stdout}}`;}}
+  }}catch(e){{el.className='test-result err';el.textContent='Error: '+e;}}
+}}
+
+// === ビルド ===
 function build(){{
   const c=document.getElementById('clusters');c.innerHTML='';
   CL.forEach((cl,ci)=>{{
     const d=document.createElement('div');d.className='cluster';
-    d.innerHTML=`<div class="ch"><div class="ct">${{cl.l}}</div><div class="cs" id="cs${{ci}}">\u2014</div><div class="ca"><button class="cb" onclick="runNums('run_start',clNums(${{ci}}))">START</button><button class="cb" onclick="runNums('run_stop',clNums(${{ci}}))">STOP</button><button class="cb c2" onclick="runNums('run_check',clNums(${{ci}}))">CHECK</button><button class="cb c2" onclick="resetNums(clNums(${{ci}}))">RST</button><button class="log-toggle" id="lt${{ci}}" onclick="toggleLog(${{ci}})">LOG \u25bc</button></div></div><div class="grid" id="cg${{ci}}"></div><div class="log-area" id="la${{ci}}"><div class="log-inner" id="li${{ci}}"></div></div>`;
+    d.innerHTML=`
+      <div class="ch">
+        <div class="ct">${{cl.l}}</div>
+        <div class="cs" id="cs${{ci}}">—</div>
+        <div class="ca">
+          <button class="cb" onclick="runNums('run_start',clNums(${{ci}}))">START</button>
+          <button class="cb" onclick="runNums('run_stop',clNums(${{ci}}))">STOP</button>
+          <button class="cb c2" onclick="runNums('run_check',clNums(${{ci}}))">CHECK</button>
+          <button class="cb c2" onclick="resetNums(clNums(${{ci}}))">RST</button>
+          <button class="log-toggle" id="lt${{ci}}" onclick="toggleLog(${{ci}})">LOG ▼</button>
+        </div>
+      </div>
+      <div class="grid" id="cg${{ci}}"></div>
+      <div class="log-area" id="la${{ci}}">
+        <div class="log-inner" id="li${{ci}}"></div>
+      </div>`;
     c.appendChild(d);
+    // ノードグリッド
     const g=document.getElementById('cg'+ci);
-    for(let i=0;i<10;i++){{const n=cl.s+i;const nd=document.createElement('div');nd.className='node';nd.id='nd'+n;nd.title=`NODE ${{n}}`;nd.onclick=()=>nodeClick(n);nd.innerHTML=`<div class="nn">NODE ${{n}}</div><div class="dot"></div><div class="nl" id="nl${{n}}">\u2014</div>`;g.appendChild(nd);}}
+    for(let i=0;i<10;i++){{
+      const n=cl.s+i;
+      const nd=document.createElement('div');
+      nd.className='node';nd.id='nd'+n;
+      nd.title=`NODE ${{n}} (10.0.0.${{n}})`;
+      nd.onclick=()=>nodeClick(n);
+      nd.innerHTML=`<div class="nn">NODE ${{n}}</div><div class="dot"></div><div class="nl" id="nl${{n}}">—</div>`;
+      g.appendChild(nd);
+    }}
+    // ログパネル（折りたたみ）
     const li=document.getElementById('li'+ci);
-    for(let i=0;i<10;i++){{const n=cl.s+i;const ld=document.createElement('div');ld.className='log-node';ld.id='ln'+n;ld.innerHTML=`<div class="log-node-hd"><span>NODE ${{n}} (10.0.0.${{n}})</span><button class="refresh-btn" onclick="event.stopPropagation();refreshLog(${{n}})">\u21bb</button></div><div class="log-text" id="logtext${{n}}">\u2014</div>`;li.appendChild(ld);}}
+    for(let i=0;i<10;i++){{
+      const n=cl.s+i;
+      const ld=document.createElement('div');ld.className='log-node';ld.id='ln'+n;
+      ld.innerHTML=`<div class="log-node-hd"><span>NODE ${{n}} (10.0.0.${{n}})</span><button class="refresh-btn" onclick="event.stopPropagation();refreshLog(${{n}})">↻</button></div><div class="log-text" id="logtext${{n}}">—</div>`;
+      li.appendChild(ld);
+    }}
   }});
 }}
-function toggleLog(ci){{const la=document.getElementById('la'+ci);const lt=document.getElementById('lt'+ci);const isOpen=la.classList.toggle('open');lt.textContent=isOpen?'LOG \u25b2':'LOG \u25bc';lt.classList.toggle('active',isOpen);if(isOpen)fetchClusterLogs(ci);}}
-async function fetchClusterLogs(ci){{const nums=clNums(ci);try{{const r=await fetch('/api/script_logs',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{nums}})}});const d=await r.json();for(const[n,log] of Object.entries(d)){{const el=document.getElementById('logtext'+n);if(el){{el.textContent=log||'(empty)';el.scrollTop=el.scrollHeight;}}}}}}catch(e){{}}}}
-async function refreshLog(n){{try{{const r=await fetch('/api/script_log/'+n);const d=await r.json();const el=document.getElementById('logtext'+n);if(el){{el.textContent=d.log||'(empty)';el.scrollTop=el.scrollHeight;}}}}catch(e){{}}}}
-async function nodeClick(n){{if(J[n]&&J[n].status==='running')return;await runNums('run_check',[n]);}}
-function applyStatus(d){{J=d;let ok=0,ng=0,run=0,idle=0;for(let n=1;n<=100;n++){{const j=d[n]||{{status:'idle',msg:''}};const nd=document.getElementById('nd'+n),nl=document.getElementById('nl'+n);if(!nd)continue;nd.className='node st-'+j.status;nl.textContent=j.msg||j.status;if(j.status==='ok')ok++;else if(j.status==='error')ng++;else if(j.status==='running')run++;else idle++;}}document.getElementById('summary').textContent=`OK:${{ok}} ERR:${{ng}} RUN:${{run}} IDLE:${{idle}}`;CL.forEach((cl,ci)=>{{let co=0,cn=0,cr=0;for(let i=0;i<10;i++){{const j=d[cl.s+i];if(!j)continue;if(j.status==='ok')co++;else if(j.status==='error')cn++;else if(j.status==='running')cr++;}}const el=document.getElementById('cs'+ci);if(el){{el.textContent=`${{co}}ok/${{cn}}err/${{cr}}run`;el.style.color=co===10?'var(--ok)':cn>0?'var(--ng)':cr>0?'var(--run)':'var(--dim)';}}}});document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();}}
+
+// === ログ折りたたみ ===
+function toggleLog(ci){{
+  const la=document.getElementById('la'+ci);
+  const lt=document.getElementById('lt'+ci);
+  const isOpen=la.classList.toggle('open');
+  lt.textContent=isOpen?'LOG ▲':'LOG ▼';
+  lt.classList.toggle('active',isOpen);
+  if(isOpen)fetchClusterLogs(ci);
+}}
+
+async function fetchClusterLogs(ci){{
+  const nums=clNums(ci);
+  try{{
+    const r=await fetch('/api/script_logs',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{nums}})}});
+    const d=await r.json();
+    for(const[n,log] of Object.entries(d)){{
+      const el=document.getElementById('logtext'+n);
+      if(el){{el.textContent=log||'(empty)';el.scrollTop=el.scrollHeight;}}
+    }}
+  }}catch(e){{}}
+}}
+
+async function refreshLog(n){{
+  try{{
+    const r=await fetch('/api/script_log/'+n);
+    const d=await r.json();
+    const el=document.getElementById('logtext'+n);
+    if(el){{el.textContent=d.log||'(empty)';el.scrollTop=el.scrollHeight;}}
+  }}catch(e){{}}
+}}
+
+// === ノードクリック: check状態 ===
+async function nodeClick(n){{
+  if(J[n]&&J[n].status==='running')return;
+  await runNums('run_check',[n]);
+}}
+
+// === ステータス更新 ===
+function applyStatus(d){{
+  J=d;let ok=0,ng=0,run=0,idle=0;
+  for(let n=1;n<=100;n++){{
+    const j=d[n]||{{status:'idle',msg:''}};
+    const nd=document.getElementById('nd'+n),nl=document.getElementById('nl'+n);
+    if(!nd)continue;
+    nd.className='node st-'+j.status;
+    nl.textContent=j.msg||j.status;
+    if(j.status==='ok')ok++;else if(j.status==='error')ng++;else if(j.status==='running')run++;else idle++;
+  }}
+  document.getElementById('summary').textContent=`OK:${{ok}} ERR:${{ng}} RUN:${{run}} IDLE:${{idle}}`;
+  CL.forEach((cl,ci)=>{{
+    let co=0,cn=0,cr=0;
+    for(let i=0;i<10;i++){{const j=d[cl.s+i];if(!j)continue;if(j.status==='ok')co++;else if(j.status==='error')cn++;else if(j.status==='running')cr++;}}
+    const el=document.getElementById('cs'+ci);
+    if(el){{el.textContent=`${{co}}ok/${{cn}}err/${{cr}}run`;el.style.color=co===10?'var(--ok)':cn>0?'var(--ng)':cr>0?'var(--run)':'var(--dim)';}}
+  }});
+  document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();
+}}
+
 async function poll(){{try{{const r=await fetch('/api/status/'+PAGE);applyStatus(await r.json())}}catch(e){{}}}}
-async function autoRefreshLogs(){{for(let ci=0;ci<10;ci++){{const la=document.getElementById('la'+ci);if(la&&la.classList.contains('open'))await fetchClusterLogs(ci);}}}}
-build();poll();setInterval(poll,2000);setInterval(autoRefreshLogs,5000);
-</script></body></html>"""
+
+// === 開いているログパネルを自動更新 ===
+async function autoRefreshLogs(){{
+  for(let ci=0;ci<10;ci++){{
+    const la=document.getElementById('la'+ci);
+    if(la&&la.classList.contains('open')){{
+      await fetchClusterLogs(ci);
+    }}
+  }}
+}}
+
+build();poll();
+setInterval(poll,2000);
+setInterval(autoRefreshLogs,5000);
+</script>
+</body>
+</html>"""
 
 
 # ── Static pages ─────────────────────────────────────────────────────────────
