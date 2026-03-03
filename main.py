@@ -6,12 +6,14 @@ from loguru import logger
 
 from app import AppController
 from bi import BIController
+from pca9685_osc_led_server import start_led_server
 from utils import load_network_config
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_path", type=str, default="config/config.json")
+    parser.add_argument("--device-id", type=int, required=True, help="Device ID (e.g. 61)")
     return parser.parse_args()
 
 
@@ -21,12 +23,9 @@ async def async_main():
     with open(opt.config_path, mode="r", encoding="utf-8") as f:
         config = json.load(f)
 
-    # Load network configuration from CSV
-    device_id = config.get("network", {}).get("device_id")
+    # Device ID from CLI argument
+    device_id = opt.device_id
     csv_path = config.get("network", {}).get("csv_path", "config/networks.csv")
-
-    if device_id is None:
-        raise ValueError("device_id must be specified in config.json")
 
     logger.info(f"Loading network config for device ID {device_id} from {csv_path}")
     network_config = load_network_config(csv_path)
@@ -44,6 +43,9 @@ async def async_main():
 
     logger.info(f"Device IP: {ip_address}")
     logger.info(f"Targets: {targets}")
+
+    # Start LED server (daemon threads, must be before BI controller)
+    start_led_server(config)
 
     # Initialize controllers
     logger.info("Starting BI system")

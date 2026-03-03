@@ -458,5 +458,208 @@ def main():
         print("\n[INFO] Stopped. LED OFF (best effort).")
 
 
+def start_led_server(config: dict) -> None:
+    """
+    Start PCA9685 LED server as a daemon thread using config dict.
+
+    Reads settings from config["led_control"] and starts the OSC server
+    and I2C control loop in background threads.
+
+    Args:
+        config: Application config dict with "led_control" section
+    """
+    led_config = config.get("led_control", {})
+
+    if not led_config.get("enabled", False):
+        print("[LED] LED control is disabled in config")
+        return
+
+    # Extract settings from config (with defaults matching CLI defaults)
+    pca_config = led_config.get("pca9685", {})
+    listen_ip = "0.0.0.0"
+    port = led_config.get("targets", [{}])[0].get("port", 9000)
+    addr = pca_config.get("addr", 0x40)
+    channel = pca_config.get("channel", 0)
+    bus = pca_config.get("bus", None)
+    freq = pca_config.get("freq", 1000.0)
+    osc_hz = pca_config.get("osc_hz", 25_000_000.0)
+    gamma = pca_config.get("gamma", 1.0)
+    max_bri = pca_config.get("max_brightness", 1.0)
+    fade = pca_config.get("fade", 0.0)
+    rate = pca_config.get("rate", 100.0)
+    reconnect_interval = pca_config.get("reconnect_interval", 2.0)
+    log_interval = pca_config.get("log_interval", 5.0)
+
+    cfg = PCA9685Config(
+        addr=addr,
+        osc_hz=osc_hz,
+        pwm_freq_hz=freq,
+        channel=channel,
+    )
+    pwm = PCA9685Manager(cfg)
+
+    # Shared state
+    state_lock = threading.Lock()
+    target = {"bri": 0.0}
+    current = {"bri": 0.0}
+    last_nonzero = {"bri": min(0.2, max_bri) if max_bri > 0 else 0.0}
+    stop = {"flag": False}
+
+    last_log = {"t": 0.0, "msg": ""}
+
+    def log_throttled(msg: str):
+        now = time.time()
+        if msg == last_log["msg"] and (now - last_log["t"]) < log_interval:
+            return
+        last_log["t"] = now
+        last_log["msg"] = msg
+        print(msg, flush=True)
+
+    def candidate_buses() -> List[int]:
+        if bus is not None:
+            return [bus]
+        return list_i2c_buses()
+
+    def apply_output(norm_bri: float) -> bool:
+        norm_bri = clamp(norm_bri, 0.0, 1.0)
+        norm_bri = min(norm_bri, max_bri)
+        out = (norm_bri ** gamma) if gamma != 1.0 else norm_bri
+        return pwm.set_duty(out)
+
+    # OSC handlers
+    def osc_led(address, *osc_args):
+        if len(osc_args) == 0:
+            return
+        bri_val = None
+        if len(osc_args) == 1:
+            bri_val = parse_brightness_01_strict(osc_args[0])
+        else:
+            try:
+                ch = int(osc_args[0])
+                if ch != channel:
+                    return
+                bri_val = parse_brightness_01_strict(osc_args[1])
+            except Exception:
+                bri_val = None
+        if bri_val is None:
+            return
+        bri_val = min(bri_val, max_bri)
+        with state_lock:
+            target["bri"] = bri_val
+            if bri_val > 0.0:
+                last_nonzero["bri"] = bri_val
+
+    def osc_on(address, *osc_args):
+        with state_lock:
+            target["bri"] = last_nonzero["bri"]
+
+    def osc_off(address, *osc_args):
+        with state_lock:
+            target["bri"] = 0.0
+
+    def osc_toggle(address, *osc_args):
+        with state_lock:
+            if target["bri"] > 0.0 or current["bri"] > 0.0:
+                target["bri"] = 0.0
+            else:
+                target["bri"] = last_nonzero["bri"]
+
+    dispatcher = Dispatcher()
+    dispatcher.map("/led", osc_led)
+    dispatcher.map("/led/on", osc_on)
+    dispatcher.map("/led/off", osc_off)
+    dispatcher.map("/led/toggle", osc_toggle)
+
+    server = ThreadingOSCUDPServer((listen_ip, port), dispatcher)
+
+    # Start OSC server thread
+    osc_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    osc_thread.start()
+
+    # Start I2C control loop thread
+    def control_loop():
+        dt = 1.0 / max(10.0, float(rate))
+        next_reconnect = 0.0
+        was_connected = False
+
+        with state_lock:
+            target["bri"] = 0.0
+            current["bri"] = 0.0
+
+        while not stop["flag"]:
+            now = time.time()
+
+            if not pwm.connected and now >= next_reconnect:
+                buses = candidate_buses()
+                if not buses:
+                    log_throttled("[LED] No /dev/i2c-* found. Will retry.")
+                    next_reconnect = now + reconnect_interval
+                else:
+                    ok = pwm.try_connect(buses)
+                    if ok:
+                        log_throttled(f"[LED] Connected to PCA9685 on /dev/i2c-{pwm.bus_id} addr=0x{addr:02X}")
+                        with state_lock:
+                            current["bri"] = 0.0
+                        was_connected = True
+                    else:
+                        log_throttled(f"[LED] PCA9685 not found (addr=0x{addr:02X}). Retrying...")
+                        next_reconnect = now + reconnect_interval
+
+            if was_connected and not pwm.connected:
+                log_throttled("[LED] PCA9685 disconnected. Will retry.")
+                with state_lock:
+                    current["bri"] = 0.0
+                was_connected = False
+                next_reconnect = now + reconnect_interval
+
+            with state_lock:
+                t = target["bri"]
+                c = current["bri"]
+
+            if fade <= 0.0:
+                c_new = t
+            else:
+                step_size = dt / float(fade)
+                diff = t - c
+                if abs(diff) <= step_size:
+                    c_new = t
+                else:
+                    c_new = c + step_size if diff > 0 else c - step_size
+                c_new = clamp(c_new, 0.0, 1.0)
+
+            if pwm.connected:
+                applied = apply_output(c_new)
+                if not applied:
+                    log_throttled("[LED] I2C write failed. Will retry.")
+                    was_connected = False
+                    next_reconnect = now + reconnect_interval
+                else:
+                    with state_lock:
+                        current["bri"] = c_new
+                    was_connected = True
+            else:
+                with state_lock:
+                    current["bri"] = 0.0
+
+            time.sleep(dt)
+
+        # Cleanup
+        try:
+            if pwm.connected:
+                pwm.off()
+        except Exception:
+            pass
+        try:
+            server.shutdown()
+        except Exception:
+            pass
+        pwm.disconnect()
+
+    control_thread = threading.Thread(target=control_loop, daemon=True)
+    control_thread.start()
+
+    print(f"[LED] Started: OSC udp://{listen_ip}:{port} -> PCA9685 addr=0x{addr:02X} ch={channel}")
+
+
 if __name__ == "__main__":
     sys.exit(main())

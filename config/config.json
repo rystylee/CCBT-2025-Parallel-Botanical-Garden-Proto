@@ -1,6 +1,5 @@
 {
   "network": {
-    "device_id": 1,
     "csv_path": "config/networks.csv"
   },
   "cycle": {
@@ -49,6 +48,17 @@
     ],
     "fade_steps": 40,
     "fade_up_duration": 2.0,
-    "fade_down_duration": 2.0
+    "fade_down_duration": 2.0,
+    "pca9685": {
+      "addr": 64,
+      "channel": 0,
+      "bus": null,
+      "freq": 1000.0,
+      "gamma": 1.0,
+      "max_brightness": 1.0,
+      "fade": 0.0,
+      "rate": 100.0,
+      "reconnect_interval": 2.0
+    }
   }
 }
