@@ -38,7 +38,7 @@ echo "DNS: ${DNS}"
 echo "Device ID: ${IP_LAST}"
 echo ""
 
-# 1. /etc/network/interfaces を書き換え（バックアップ付き）
+# 1. /etc/network/interfaces を書き換え（バックアップ付き、再起動後の永続化用）
 echo "[1/6] /etc/network/interfaces を設定中..."
 cp /etc/network/interfaces /etc/network/interfaces.bak
 
@@ -80,11 +80,12 @@ systemctl restart systemd-resolved
 sleep 1
 echo "  -> 完了"
 
-# 4. ネットワーク再起動
-echo "[4/6] ネットワーク再起動中..."
-ifdown eth0 2>/dev/null || true
-sleep 1
-ifup eth0
+# 4. ネットワーク即時反映（ipコマンドで直接設定）
+echo "[4/6] ネットワーク設定を即時反映中..."
+ip addr flush dev eth0
+ip addr add ${IP_ADDR}/24 dev eth0
+ip link set eth0 up
+ip route add default via ${GATEWAY} 2>/dev/null || true
 sleep 2
 echo "  -> 完了"
 
