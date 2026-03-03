@@ -18,7 +18,7 @@ from pythonosc import udp_client
 # Soft prefix generation utilities (copied from bi/utils.py)
 P = 1  # num prefix_token
 H = 1536  # tokens_embed_size
-VALS = [0.0, 1e-4, 1e-3, 1e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1.0, 2.0]
+VALS = [0.0, 1e-4, 1e-3, 1e-2]
 
 
 def f32_to_bf16_u16(x: float) -> int:
