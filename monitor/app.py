@@ -14,6 +14,7 @@ BI MONITOR - 4ページ構成
 from flask import Flask, jsonify, request, render_template_string
 from pythonosc import udp_client
 import threading, time, subprocess
+import getpass
 
 app = Flask(__name__)
 
@@ -21,12 +22,13 @@ app = Flask(__name__)
 NODE_PREFIX = "10.0.0"
 NODE_COUNT  = 100
 OSC_PORT    = 9000
-SSH_USER    = "root"           # ← 変更してください
+SSH_USER    = "root"
 GIT_DIR     = "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto"
 SOUND_CMD   = "tinyplay -D0 -d1 /usr/local/m5stack/logo.wav"
 LED_STEPS   = 40
 LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
+SSH_PASS = getpass.getpass("SSH Password: ")
 
 # ── ジョブ管理 ─────────────────────────────────────────────────────────────────
 PAGES = ["ping", "system", "led", "sound"]
@@ -59,8 +61,10 @@ def ping_ip(ip):
 
 def ssh_run(ip, cmd, timeout=15):
     r = subprocess.run(
-        ["ssh", "-o", "StrictHostKeyChecking=no",
-         "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+        ["sshpass", "-p", SSH_PASS,
+         "ssh",
+         "-o", "StrictHostKeyChecking=no",
+         "-o", "ConnectTimeout=5",
          f"{SSH_USER}@{ip}", cmd],
         capture_output=True, text=True, timeout=timeout)
     return r.returncode, r.stdout.strip(), r.stderr.strip()
