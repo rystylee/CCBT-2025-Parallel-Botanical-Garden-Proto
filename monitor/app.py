@@ -186,22 +186,51 @@ def _sound_worker(num):
 
 # ── Page 5: Run Scripts (tmux) ────────────────────────────────────────────────
 def _run_start_worker(num):
-    """tmuxセッションを作成してスクリプトを実行"""
+    """
+    tmuxセッションを作成してスクリプトを実行（send-keys方式）
+
+    旧方式 tmux new-session -d -s NAME 'cmd' だと:
+      - cmd が即終了するとセッションも消える
+      - 非インタラクティブシェルで PATH が不完全 (uv が見つからない等)
+
+    新方式:
+      1. tmux new-session -d -s NAME  → bashログインシェルで起動
+      2. tmux set remain-on-exit on   → コマンド終了後もセッション維持
+      3. tmux send-keys 'cmd' Enter   → ログインシェル内でコマンド実行
+    """
     page = "run"
     if not job_locks[page][num].acquire(blocking=False): return
     try:
         set_job(page, num, "running", "starting...")
         ip = node_ip(num)
+
         # 既存セッションがあれば kill
         ssh_run(ip, f"tmux kill-session -t {TMUX_SESSION} 2>/dev/null", timeout=5)
         time.sleep(0.3)
-        # 新しい tmux セッションでスクリプトを実行
-        cmd = f"tmux new-session -d -s {TMUX_SESSION} '{SCRIPT_CMD}'"
-        code, out, err = ssh_run(ip, cmd, timeout=30)
-        if code == 0:
+
+        # Step 1: ログインシェルで tmux セッションを作成
+        code, out, err = ssh_run(ip,
+            f"tmux new-session -d -s {TMUX_SESSION}",
+            timeout=10)
+        if code != 0:
+            set_job(page, num, "error", (err or out)[:24] or "tmux fail")
+            return
+        time.sleep(0.2)
+
+        # Step 2: remain-on-exit を有効化（コマンド終了後もペインを維持→ログ確認可能）
+        ssh_run(ip,
+            f"tmux set-option -t {TMUX_SESSION} remain-on-exit on",
+            timeout=5)
+
+        # Step 3: send-keys でコマンドを入力（PATH が正しくロードされた状態で実行）
+        esc_cmd = SCRIPT_CMD.replace("'", "'\\''")
+        code2, out2, err2 = ssh_run(ip,
+            f"tmux send-keys -t {TMUX_SESSION} '{esc_cmd}' Enter",
+            timeout=10)
+        if code2 == 0:
             set_job(page, num, "ok", "tmux started")
         else:
-            set_job(page, num, "error", (err or out)[:24] or "start fail")
+            set_job(page, num, "error", (err2 or out2)[:24] or "send fail")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "ssh timeout")
     except Exception as e:
