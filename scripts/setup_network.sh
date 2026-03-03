@@ -2,7 +2,7 @@
 set -e
 
 # --- 使い方: sudo ./setup_network.sh <IPの末尾番号> ---
-# 例: sudo ./setup_network.sh 85  → 10.0.0.85 に設定
+# 例: sudo ./setup_network.sh 85  → 10.0.0.85 に設定、device_id も 85 に更新
 
 if [ -z "$1" ]; then
     echo "使い方: sudo $0 <IPの末尾番号 (1-254)>"
@@ -27,14 +27,19 @@ IP_ADDR="10.0.0.${IP_LAST}"
 GATEWAY="10.0.0.200"
 DNS="8.8.8.8"
 
+# config.json のパス（スクリプトの場所から相対）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_JSON="${SCRIPT_DIR}/../config/config.json"
+
 echo "=== M5Stack ネットワークセットアップ ==="
 echo "IP: ${IP_ADDR}"
 echo "Gateway: ${GATEWAY}"
 echo "DNS: ${DNS}"
+echo "Device ID: ${IP_LAST}"
 echo ""
 
 # 1. /etc/network/interfaces を書き換え（バックアップ付き）
-echo "[1/5] /etc/network/interfaces を設定中..."
+echo "[1/6] /etc/network/interfaces を設定中..."
 cp /etc/network/interfaces /etc/network/interfaces.bak
 
 cat > /etc/network/interfaces << EOF
@@ -53,8 +58,18 @@ EOF
 
 echo "  -> 完了（バックアップ: /etc/network/interfaces.bak）"
 
-# 2. DNS設定（systemd-resolved）
-echo "[2/5] DNS設定（systemd-resolved）..."
+# 2. config.json の device_id を更新
+echo "[2/6] config.json の device_id を更新中..."
+if [ -f "${CONFIG_JSON}" ]; then
+    cp "${CONFIG_JSON}" "${CONFIG_JSON}.bak"
+    sed -i "s/\"device_id\":[[:space:]]*[0-9]*/\"device_id\": ${IP_LAST}/" "${CONFIG_JSON}"
+    echo "  -> 完了（バックアップ: ${CONFIG_JSON}.bak）"
+else
+    echo "  ⚠ ${CONFIG_JSON} が見つかりません。スキップしました"
+fi
+
+# 3. DNS設定（systemd-resolved）
+echo "[3/6] DNS設定（systemd-resolved）..."
 mkdir -p /etc/systemd/resolved.conf.d/
 cat > /etc/systemd/resolved.conf.d/dns.conf << EOF
 [Resolve]
@@ -65,22 +80,22 @@ systemctl restart systemd-resolved
 sleep 1
 echo "  -> 完了"
 
-# 3. ネットワーク再起動
-echo "[3/5] ネットワーク再起動中..."
+# 4. ネットワーク再起動
+echo "[4/6] ネットワーク再起動中..."
 ifdown eth0 2>/dev/null || true
 sleep 1
 ifup eth0
 sleep 2
 echo "  -> 完了"
 
-# 4. DNS反映
-echo "[4/5] DNS設定を反映中..."
+# 5. DNS反映
+echo "[5/6] DNS設定を反映中..."
 resolvconf -u
 sleep 1
 echo "  -> 完了"
 
-# 5. 接続確認
-echo "[5/5] 接続確認中..."
+# 6. 接続確認
+echo "[6/6] 接続確認中..."
 echo ""
 
 # ゲートウェイ
@@ -102,6 +117,16 @@ if ping -c 2 -W 3 github.com > /dev/null 2>&1; then
     echo "  ✓ DNS名前解決 (github.com) OK"
 else
     echo "  ✗ DNS名前解決 (github.com) 失敗"
+fi
+
+# config.json 確認
+if [ -f "${CONFIG_JSON}" ]; then
+    CURRENT_ID=$(grep -o '"device_id":[[:space:]]*[0-9]*' "${CONFIG_JSON}" | grep -o '[0-9]*$')
+    if [ "${CURRENT_ID}" = "${IP_LAST}" ]; then
+        echo "  ✓ device_id = ${CURRENT_ID} OK"
+    else
+        echo "  ✗ device_id = ${CURRENT_ID}（期待値: ${IP_LAST}）"
+    fi
 fi
 
 echo ""
