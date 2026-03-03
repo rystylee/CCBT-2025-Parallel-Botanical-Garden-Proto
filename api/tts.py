@@ -1,4 +1,3 @@
-import asyncio
 import os
 import random
 import time
@@ -345,21 +344,26 @@ class StackFlowTTSClient:
                         pass
             return None
 
-    async def play_wav(self, wav_path: str) -> None:
+    def start_playback(self, wav_path: str) -> "subprocess.Popen":
         """
-        Play WAV file using tinyplay (non-blocking async via run_in_executor).
+        Start WAV playback using tinyplay (non-blocking Popen).
 
         Args:
             wav_path: Path to WAV file to play
+
+        Returns:
+            subprocess.Popen: The running tinyplay process
         """
+        import subprocess
+
         audio_config = self.config.get("audio", {})
         card = audio_config.get("tinyplay_card", 0)
         device = audio_config.get("tinyplay_device", 1)
 
-        logger.info(f"Playing WAV file with tinyplay: {wav_path}")
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, tinyplay_play, wav_path, card, device)
-        logger.info("tinyplay playback completed")
+        cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
+        logger.info(f"Starting tinyplay: {' '.join(cmd)}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        return proc
 
     def cleanup_wav(self, wav_path: str) -> None:
         """Remove temporary WAV file."""

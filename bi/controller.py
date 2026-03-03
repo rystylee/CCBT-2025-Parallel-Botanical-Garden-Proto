@@ -114,17 +114,31 @@ class BIController:
         except Exception as e:
             logger.error(f"Error in WAV preparation: {e}")
 
-        # Step 2: Play audio + LED fade up concurrently
         if wav_path:
+            proc = None
             try:
-                await asyncio.gather(
-                    self._led_fade_up(),
-                    self.tts_client.play_wav(wav_path),
-                )
+                # Step 2: Start tinyplay (non-blocking)
+                proc = self.tts_client.start_playback(wav_path)
+
+                # Step 3: LED fade up while audio is playing
+                await self._led_fade_up()
+
+                # Step 4: Wait for tinyplay to finish
+                while proc.poll() is None:
+                    await asyncio.sleep(0.05)
+
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read().decode() if proc.stderr else ""
+                    logger.error(f"tinyplay failed (rc={proc.returncode}): {stderr}")
+                else:
+                    logger.info("tinyplay playback completed")
+
             except Exception as e:
                 logger.error(f"Error in playback/LED: {e}")
+                if proc and proc.poll() is None:
+                    proc.kill()
             finally:
-                # Step 3: LED fade down after playback ends
+                # Step 5: LED fade down
                 await self._led_fade_down()
                 self.tts_client.cleanup_wav(wav_path)
         else:
