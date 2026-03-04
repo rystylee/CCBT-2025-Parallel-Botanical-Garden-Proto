@@ -48,6 +48,114 @@ script_logs_lock = threading.Lock()
 
 SSH_SEMAPHORE = threading.Semaphore(20)
 
+# ── RUN ログスクレイパー ──────────────────────────────────────────────
+import re as _re
+
+# ノードごとに「すでにログ済みの行フィンガープリント」を保持（重複防止）
+_run_scrape_seen: dict = {n: set() for n in range(1, NODE_COUNT + 1)}
+_run_scrape_lock = threading.Lock()
+
+
+def _parse_loguru(line: str):
+    """loguru 出力行をパース → (timestamp_str, level, message) or None
+    形式: "2025-06-15 18:19:01.234 | INFO     | module:func:line - message"
+    """
+    try:
+        parts = line.split(" | ", 2)
+        if len(parts) < 3:
+            return None
+        ts    = parts[0].strip()          # "2025-06-15 18:19:01.234"
+        level = parts[1].strip()          # "INFO" / "ERROR" etc.
+        rest  = parts[2]
+        msg   = rest.split(" - ", 1)[1] if " - " in rest else rest
+        return ts, level, msg.strip()
+    except Exception:
+        return None
+
+
+def _dispatch_scrape_event(num: int, ts: str, level: str, msg: str):
+    """パース済みの loguru 行を解釈して bi_logger に書き込む"""
+    hh = ts[11:19] if len(ts) >= 19 else ts   # "HH:MM:SS" 部分
+
+    if m := _re.search(r"Added input: '(.{0,80})' relay_count=(\d+)->(\d+)", msg):
+        bi_logger.log_run_signal_received(num, m.group(1), int(m.group(2)), ts=hh)
+
+    elif m := _re.search(r"Generated text: (.+)", msg):
+        bi_logger.log_run_generated_raw(num, m.group(1).strip(), ts=hh)
+
+    elif "Preparing WAV file" in msg:
+        bi_logger.log_run_tts_start(num, ts=hh)
+
+    elif "WAV preparation failed" in msg:
+        bi_logger.log_run_tts_failed(num, ts=hh)
+
+    elif m := _re.search(r"Sent to Mixer PC: (.+)", msg):
+        bi_logger.log_run_mixer_sent(num, m.group(1).strip(), ts=hh)
+
+    elif m := _re.search(r"Error sending to targets: (.+)", msg):
+        bi_logger.log_run_error(num, "SIGNAL_OUT", m.group(1), ts=hh)
+
+    elif m := _re.search(r"Error in generation: (.+)", msg):
+        bi_logger.log_run_error(num, "GENERATING", m.group(1), ts=hh)
+
+    elif m := _re.search(r"Error in TTS playback: (.+)", msg):
+        bi_logger.log_run_error(num, "PLAYBACK", m.group(1), ts=hh)
+
+    elif m := _re.search(r"Error in BI cycle: (.+)", msg):
+        bi_logger.log_run_error(num, "CYCLE", m.group(1), ts=hh)
+
+    elif m := _re.search(r"Rejected data exceeding relay limit: (.+)", msg):
+        bi_logger.log_run_relay_rejected(num, m.group(1), ts=hh)
+
+    elif "Auto-starting BI cycle" in msg or "Starting BI system" in msg:
+        bi_logger.log_run_startup(num, ts=hh)
+
+
+def _scrape_node_run_log(num: int):
+    """1ノードの tmux ログを取得して新行だけ書き込む"""
+    try:
+        code, out, _ = ssh_run(
+            node_ip(num),
+            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -S -400 2>/dev/null",
+            timeout=10,
+        )
+        if code != 0 or not out.strip():
+            return
+        new_events = []
+        with _run_scrape_lock:
+            seen = _run_scrape_seen[num]
+            for line in out.splitlines():
+                parsed = _parse_loguru(line)
+                if not parsed:
+                    continue
+                ts, level, msg = parsed
+                fp = (ts[:19], msg[:80])   # 秒精度タイムスタンプ + メッセージ頭80字
+                if fp in seen:
+                    continue
+                seen.add(fp)
+                new_events.append((ts, level, msg))
+            # seen セットが巨大化しないように間引く
+            if len(seen) > 3000:
+                _run_scrape_seen[num] = set(list(seen)[-1500:])
+        for ts, level, msg in new_events:
+            _dispatch_scrape_event(num, ts, level, msg)
+    except Exception:
+        pass
+
+
+def _run_scraper_loop():
+    """バックグラウンドスレッド: 30秒ごとに稼働中の RUN ノードをスクレイプ"""
+    time.sleep(15)           # アプリ起動直後は待機
+    while True:
+        active = [n for n in range(1, NODE_COUNT + 1)
+                  if jobs["run"][n]["status"] == "ok"]
+        for num in active:
+            threading.Thread(
+                target=_scrape_node_run_log, args=(num,), daemon=True
+            ).start()
+            time.sleep(0.15)  # SSH 接続を少しずつ開く
+        time.sleep(30)
+
 def set_job(page, num, status, msg=""):
     jobs[page][num] = {"status": status, "msg": msg}
 def is_running(page, num):
@@ -389,6 +497,43 @@ def api_send_test():
         return jsonify({"ok": False, "stdout": "", "stderr": str(e)})
 
 
+# ── ログファイル閲覧 API ──────────────────────────────────────────────
+
+@app.route("/api/logdates")
+def api_logdates():
+    """ログが存在する日付一覧と、その日のファイル一覧を返す"""
+    result = []
+    if not os.path.isdir(bi_logger.LOG_ROOT):
+        return jsonify(result)
+    for d in sorted(os.listdir(bi_logger.LOG_ROOT), reverse=True):
+        dpath = os.path.join(bi_logger.LOG_ROOT, d)
+        if not os.path.isdir(dpath):
+            continue
+        files = sorted(f for f in os.listdir(dpath) if f.endswith(".txt"))
+        if files:
+            result.append({"date": d, "files": files})
+    return jsonify(result)
+
+
+@app.route("/api/logfile")
+def api_logfile():
+    """?date=YYYY-MM-DD&file=filename.txt の内容を返す"""
+    date = request.args.get("date", "")
+    fname = request.args.get("file", "")
+    # パストラバーサル防止
+    if not date or not fname or "/" in date or "/" in fname or ".." in fname:
+        return jsonify({"error": "invalid params"}), 400
+    path = os.path.join(bi_logger.LOG_ROOT, date, fname)
+    if not os.path.isfile(path):
+        return jsonify({"content": "", "lines": 0})
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return jsonify({"content": content, "lines": content.count("\n")})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── HTML ──────────────────────────────────────────────────────────────────────
 SHARED_CSS = """
 :root{--bg:#0a0a0f;--panel:#111118;--border:#1e1e2e;--accent:#f0c040;--a2:#40c0f0;--dim:#444460;--text:#cccce0;--ok:#40f080;--ng:#f04040;--run:#40c0f0;}
@@ -430,11 +575,148 @@ nav{display:flex;}
 .footer{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--dim);padding:6px 20px 12px;}
 .node.selected{outline:2px solid var(--accent);outline-offset:-2px;}
 .node.selected .nn{color:var(--accent);}
+/* ── ログビューワー ── */
+.lv-wrap{margin:0 0 0 0;border-top:2px solid var(--border);}
+.lv-hdr{display:flex;align-items:center;gap:10px;padding:8px 20px;background:#0a0a12;cursor:pointer;user-select:none;}
+.lv-hdr:hover{background:#0d0d18;}
+.lv-title{font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--a2);letter-spacing:2px;}
+.lv-arrow{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--dim);transition:transform .2s;}
+.lv-wrap.open .lv-arrow{transform:rotate(180deg);}
+.lv-body{display:none;padding:12px 20px;background:#08080e;border-top:1px solid var(--border);}
+.lv-wrap.open .lv-body{display:flex;flex-direction:column;gap:8px;}
+.lv-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.lv-sel{font-family:'Share Tech Mono',monospace;font-size:.68rem;padding:5px 8px;background:#0d0d14;border:1px solid var(--border);color:var(--text);cursor:pointer;}
+.lv-sel:focus{outline:none;border-color:var(--a2);}
+.lv-btn{font-family:'Share Tech Mono',monospace;font-size:.62rem;padding:5px 12px;border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;}
+.lv-btn:hover{border-color:var(--a2);color:var(--a2);}
+.lv-btn.active{border-color:var(--ok);color:var(--ok);}
+.lv-meta{font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--dim);margin-left:auto;}
+.lv-text{font-family:'Share Tech Mono',monospace;font-size:.58rem;color:#b0b0d0;background:#060609;border:1px solid var(--border);padding:10px;white-space:pre;overflow:auto;height:320px;line-height:1.5;}
 """
 
 NAV_TABS = [("/","system","01 SYSTEM"),("/led","led","02 LED"),("/sound","sound","03 SOUND"),("/llm","llm","04 LLM"),("/tts","tts","05 TTS"),("/run","run","99 RUN")]
 def make_nav(current):
     return "".join(f'<a href="{u}" class="nt{" on" if p==current else ""}">{l}</a>' for u,p,l in NAV_TABS)
+
+# ── ログビューワー共通 HTML + JS ──────────────────────────────────────
+_PAGE_LOG_DEFAULT = {
+    "system": "01_system_log.txt",
+    "led":    "02_led_log.txt",
+    "sound":  "03_sound_log.txt",
+    "llm":    "04_llm_log.txt",
+    "tts":    "05_tts_log.txt",
+    "run":    "99_run_history.txt",
+}
+
+def _make_log_viewer(page_id: str) -> str:
+    default_file = _PAGE_LOG_DEFAULT.get(page_id, "")
+    return f"""
+<div class="lv-wrap" id="lvWrap">
+  <div class="lv-hdr" onclick="lvToggle()">
+    <span class="lv-title">&#128193; FILE LOG VIEWER</span>
+    <span class="lv-arrow" id="lvArrow">&#9660;</span>
+    <span style="font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--dim);margin-left:8px" id="lvHint">クリックで展開</span>
+  </div>
+  <div class="lv-body" id="lvBody">
+    <div class="lv-ctrl">
+      <select class="lv-sel" id="lvDate" onchange="lvOnDateChange()"><option value="">-- 日付 --</option></select>
+      <select class="lv-sel" id="lvFile" onchange="lvLoad()"><option value="">-- ファイル --</option></select>
+      <button class="lv-btn" id="lvRefBtn" onclick="lvLoad()">&#8635; RELOAD</button>
+      <button class="lv-btn" id="lvAutoBtn" onclick="lvToggleAuto()">AUTO OFF</button>
+      <button class="lv-btn" onclick="lvScrollBottom()">&#8595; BOTTOM</button>
+      <span class="lv-meta" id="lvMeta"></span>
+    </div>
+    <pre class="lv-text" id="lvText">(ファイルを選択してください)</pre>
+  </div>
+</div>
+<script>
+(function(){{
+  const DEFAULT_FILE = '{default_file}';
+  let lvOpen = false, lvAutoOn = false, lvAutoTimer = null;
+  function lvToggle(){{
+    lvOpen = !lvOpen;
+    document.getElementById('lvWrap').classList.toggle('open', lvOpen);
+    document.getElementById('lvArrow').innerHTML = lvOpen ? '&#9650;' : '&#9660;';
+    document.getElementById('lvHint').textContent = lvOpen ? '' : 'クリックで展開';
+    if(lvOpen && !document.getElementById('lvDate').value) lvInitDates();
+  }}
+  async function lvInitDates(){{
+    try{{
+      const r = await fetch('/api/logdates');
+      const data = await r.json();
+      const sel = document.getElementById('lvDate');
+      sel.innerHTML = '<option value="">-- 日付 --</option>';
+      data.forEach(d => {{
+        const o = document.createElement('option');
+        o.value = d.date; o.textContent = d.date;
+        sel.appendChild(o);
+      }});
+      // 今日の日付を自動選択
+      if(data.length > 0){{
+        sel.value = data[0].date;
+        lvOnDateChange(data[0]);
+      }}
+    }}catch(e){{}}
+  }}
+  async function lvOnDateChange(preloaded){{
+    const date = document.getElementById('lvDate').value;
+    if(!date) return;
+    let files;
+    if(preloaded && preloaded.files){{
+      files = preloaded.files;
+    }} else {{
+      try{{
+        const r = await fetch('/api/logdates');
+        const data = await r.json();
+        const entry = data.find(d => d.date === date);
+        files = entry ? entry.files : [];
+      }}catch(e){{ files = []; }}
+    }}
+    const fsel = document.getElementById('lvFile');
+    fsel.innerHTML = '<option value="">-- ファイル --</option>';
+    files.forEach(f => {{
+      const o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      fsel.appendChild(o);
+    }});
+    // このページに対応するデフォルトファイルを自動選択
+    if(DEFAULT_FILE && files.includes(DEFAULT_FILE)) fsel.value = DEFAULT_FILE;
+    else if(files.length > 0) fsel.value = files[0];
+    if(fsel.value) lvLoad();
+  }}
+  async function lvLoad(){{
+    const date = document.getElementById('lvDate').value;
+    const file = document.getElementById('lvFile').value;
+    if(!date || !file) return;
+    try{{
+      const r = await fetch('/api/logfile?date='+encodeURIComponent(date)+'&file='+encodeURIComponent(file));
+      const d = await r.json();
+      const el = document.getElementById('lvText');
+      const wasAtBottom = el.scrollHeight - el.clientHeight <= el.scrollTop + 20;
+      el.textContent = d.content || '(空のファイル)';
+      document.getElementById('lvMeta').textContent = d.lines + ' lines  |  ' + date + '/' + file;
+      if(wasAtBottom) el.scrollTop = el.scrollHeight;
+    }}catch(e){{}}
+  }}
+  function lvScrollBottom(){{
+    const el = document.getElementById('lvText');
+    el.scrollTop = el.scrollHeight;
+  }}
+  function lvToggleAuto(){{
+    lvAutoOn = !lvAutoOn;
+    const btn = document.getElementById('lvAutoBtn');
+    btn.textContent = lvAutoOn ? 'AUTO ON' : 'AUTO OFF';
+    btn.classList.toggle('active', lvAutoOn);
+    if(lvAutoOn){{ lvAutoTimer = setInterval(lvLoad, 10000); }}
+    else{{ clearInterval(lvAutoTimer); }}
+  }}
+  window.lvToggle = lvToggle;
+  window.lvOnDateChange = lvOnDateChange;
+  window.lvLoad = lvLoad;
+  window.lvScrollBottom = lvScrollBottom;
+  window.lvToggleAuto = lvToggleAuto;
+}})();
+</script>"""
 
 # -- make_html for simple pages (LED, Sound) --
 def make_html(page_id, title, subtitle, toolbar_html, cluster_btn_defs, js_actions):
@@ -467,7 +749,9 @@ function getSelNums(){{return sel.size>0?Array.from(sel):allNums();}}
 function updSelBtn(){{const el=document.getElementById('selCount');if(el)el.textContent=sel.size>0?sel.size+' selected':'all';}}
 {js_actions}
 build();poll();setInterval(poll,1500);
-</script></body></html>"""
+</script>
+{_make_log_viewer(page_id)}
+</body></html>"""
 
 
 # ── Page 1: SYSTEM ────────────────────────────────────────────────────────────
@@ -545,7 +829,9 @@ function applyStatus(d){{
 }}
 async function poll(){{try{{const r=await fetch('/api/status/'+PAGE);applyStatus(await r.json())}}catch(e){{}}}}
 build();poll();setInterval(poll,1500);
-</script></body></html>"""
+</script>
+{_make_log_viewer("system")}
+</body></html>"""
 
 
 # ── Page 4: RUN SCRIPTS ──────────────────────────────────────────────────────
@@ -760,6 +1046,7 @@ build();poll();
 setInterval(poll,2000);
 setInterval(autoRefreshLogs,5000);
 </script>
+{_make_log_viewer(page_id)}
 </body>
 </html>"""
 
@@ -812,6 +1099,8 @@ def page_tts(): return make_tmux_html("tts", "TTS CHECK", "TTSロード検証 �
 def page_run(): return make_tmux_html("run", "RUN SCRIPTS", "スクリプト実行 (tmux) — SSH切断後も継続", "run", show_test=True)
 
 if __name__ == "__main__":
+    # RUN ログスクレイパー起動
+    threading.Thread(target=_run_scraper_loop, daemon=True, name="run-scraper").start()
     print("=" * 50)
     print("  BI MONITOR")
     print("  http://localhost:5050        -> 01 SYSTEM")
