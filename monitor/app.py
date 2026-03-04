@@ -51,23 +51,37 @@ SSH_SEMAPHORE = threading.Semaphore(20)
 # ── RUN ログスクレイパー ──────────────────────────────────────────────
 import re as _re
 
+# ANSI エスケープシーケンスを除去するパターン
+# loguru はターミナルに色付きで出力するため tmux capture-pane にカラーコードが混入する
+_ANSI_RE = _re.compile(r'\x1b\[[0-9;]*[mGKHF]|\x1b\(B|\x1b=|\x1b>')
+
 # ノードごとに「すでにログ済みの行フィンガープリント」を保持（重複防止）
 _run_scrape_seen: dict = {n: set() for n in range(1, NODE_COUNT + 1)}
 _run_scrape_lock = threading.Lock()
 
 
-def _parse_loguru(line: str):
+def _strip_ansi(s: str) -> str:
+    return _ANSI_RE.sub("", s)
+
+
+def _parse_loguru(raw_line: str):
     """loguru 出力行をパース → (timestamp_str, level, message) or None
+
+    ANSI カラーコードを除去してからパースする。
     形式: "2025-06-15 18:19:01.234 | INFO     | module:func:line - message"
     """
+    line = _strip_ansi(raw_line)
     try:
         parts = line.split(" | ", 2)
         if len(parts) < 3:
             return None
-        ts    = parts[0].strip()          # "2025-06-15 18:19:01.234"
-        level = parts[1].strip()          # "INFO" / "ERROR" etc.
+        ts    = parts[0].strip()
+        level = parts[1].strip()
         rest  = parts[2]
         msg   = rest.split(" - ", 1)[1] if " - " in rest else rest
+        # タイムスタンプの基本チェック（数字で始まる年を期待）
+        if not ts[:4].isdigit():
+            return None
         return ts, level, msg.strip()
     except Exception:
         return None
@@ -114,10 +128,13 @@ def _dispatch_scrape_event(num: int, ts: str, level: str, msg: str):
 def _scrape_node_run_log(num: int):
     """1ノードの tmux ログを取得して新行だけ書き込む"""
     try:
+        # tmux capture-pane の出力をサーバー側で ANSI 除去してから受け取る
+        # -S -600 で直近600行を対象にする
         code, out, _ = ssh_run(
             node_ip(num),
-            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -S -400 2>/dev/null",
-            timeout=10,
+            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -S -600 2>/dev/null"
+            r" | sed 's/\x1b\[[0-9;]*[mGKHF]//g; s/\x1b(B//g'",
+            timeout=12,
         )
         if code != 0 or not out.strip():
             return
