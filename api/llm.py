@@ -32,6 +32,8 @@ class StackFlowLLMClient:
         self.lang = lang
         self.model = LLM_SETTINGS.get(lang).get("model")
         self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
+        self.temperature = config.get("stack_flow_llm").get("temperature", 0.7)
+        self.top_p = config.get("stack_flow_llm").get("top_p", 0.9)
         self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
         self.translation_prompt = LLM_SETTINGS.get(lang).get("translation_prompt")
         self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
@@ -40,6 +42,8 @@ class StackFlowLLMClient:
         logger.info(f"lang: {lang}")
         logger.info(f"model: {self.model}")
         logger.info(f"max_tokens: {self.max_tokens}")
+        logger.info(f"temperature: {self.temperature}")
+        logger.info(f"top_p: {self.top_p}")
         logger.info(f"system_prompt: {self.system_prompt}")
         logger.info(f"translation_prompt: {self.translation_prompt}")
         logger.info(f"instruction_prompt: {self.instruction_prompt}")
@@ -123,7 +127,7 @@ class StackFlowLLMClient:
         return {"request_id": "llm_exit", "work_id": self.llm_work_id, "action": "exit"}
 
     def _create_send_data(self, prompt: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0) -> dict:
-        data_obj = {"delta": prompt, "index": 0, "finish": True}
+        data_obj = {"delta": prompt, "index": 0, "finish": True, "temperature": self.temperature, "top_p": self.top_p}
         if soft_prefix_b64 is not None:
             data_obj["soft_prefix"] = {"len": int(soft_prefix_len), "data_b64": soft_prefix_b64}
 
