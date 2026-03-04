@@ -49,8 +49,8 @@
     "fade_steps": 40,
     "fade_up_duration": 2.0,
     "fade_down_duration": 2.0,
-    "waiting_min_brightness": 0.2,
-    "waiting_max_brightness": 0.4,
+    "waiting_min_brightness": 0.05,
+    "waiting_max_brightness": 0.25,
     "pca9685": {
       "addr": 64,
       "channel": 0,
