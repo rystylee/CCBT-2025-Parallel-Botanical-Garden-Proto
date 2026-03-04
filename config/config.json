@@ -62,7 +62,7 @@
       "rate": 100.0,
       "reconnect_interval": 2.0
     }
-  }
+  },
   "llm_settings": {
     "en": {
       "model": "qwen2.5-0.5B-prefill-20e",
