@@ -16,6 +16,8 @@ OSC_PORT    = 9000
 SSH_USER    = "root"
 GIT_DIR     = "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto"
 SOUND_CMD   = "tinyplay -D0 -d1 /usr/local/m5stack/logo.wav"
+LED_SERVER_SESSION = "bi_led_srv"
+LED_SERVER_CMD = f"cd {GIT_DIR} && uv run python pca9685_osc_led_server.py --port {OSC_PORT}"
 LED_STEPS   = 40
 LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
@@ -131,6 +133,15 @@ def _led_worker(num):
     dt_up = LED_UP_SEC / LED_STEPS
     dt_dn = LED_DN_SEC / LED_STEPS
     try:
+        set_job(page, num, "running", "starting srv...")
+        # OSCサーバーが起動していなければtmuxで起動
+        code, out, _ = ssh_run(ip,
+            f"tmux has-session -t {LED_SERVER_SESSION} 2>/dev/null && echo ALIVE || echo DEAD", timeout=5)
+        if "DEAD" in out:
+            ssh_run(ip,
+                f"tmux new-session -d -s {LED_SERVER_SESSION} '{LED_SERVER_CMD}'", timeout=10)
+            time.sleep(2)  # サーバー起動待ち
+
         set_job(page, num, "running", "fade up...")
         client = udp_client.SimpleUDPClient(ip, OSC_PORT)
         for i in range(LED_STEPS + 1):
@@ -143,7 +154,7 @@ def _led_worker(num):
         client.send_message("/led", 0.0)
         set_job(page, num, "ok", "done / off")
     except Exception as e:
-        set_job(page, num, "error", str(e)[:20])
+        set_job(page, num, "error", str(e)[:40])
     finally:
         try: udp_client.SimpleUDPClient(ip, OSC_PORT).send_message("/led", 0.0)
         except: pass
@@ -482,13 +493,13 @@ async function sendTest(){
   const num=document.getElementById('testNum').value;
   const text=document.getElementById('testText').value;
   const el=document.getElementById('testResult');
-  el.className='test-result';el.textContent=`sending to NODE ${{num}} ...`;
-  try{{
-    const r=await fetch('/api/send_test',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{num,text}})}});
+  el.className='test-result';el.textContent='sending to NODE '+num+' ...';
+  try{
+    const r=await fetch('/api/send_test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({num,text})});
     const d=await r.json();
-    if(d.ok){{el.className='test-result ok';el.textContent=`NODE ${{num}}: OK ${{d.stdout}}`;}}
-    else{{el.className='test-result err';el.textContent=`NODE ${{num}}: ERR ${{d.stderr||d.stdout}}`;}}
-  }}catch(e){{el.className='test-result err';el.textContent='Error: '+e;}}
+    if(d.ok){el.className='test-result ok';el.textContent='NODE '+num+': OK '+d.stdout;}
+    else{el.className='test-result err';el.textContent='NODE '+num+': ERR '+(d.stderr||d.stdout);}
+  }catch(e){el.className='test-result err';el.textContent='Error: '+e;}
 }"""
     return f"""<!DOCTYPE html>
 <html lang="ja">
