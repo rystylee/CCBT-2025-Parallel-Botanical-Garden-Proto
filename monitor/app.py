@@ -8,6 +8,7 @@ BI MONITOR - 4 pages
 from flask import Flask, jsonify, request, render_template_string
 from pythonosc import udp_client
 import threading, time, subprocess, getpass
+import os
 
 app = Flask(__name__)
 NODE_PREFIX = "10.0.0"
@@ -16,6 +17,8 @@ OSC_PORT    = 9000
 SSH_USER    = "root"
 GIT_DIR     = "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto"
 SOUND_CMD   = "tinyplay -D0 -d1 /usr/local/m5stack/logo.wav"
+LED_SERVER_SESSION = "bi_led_srv"
+LED_SERVER_CMD = f"cd {GIT_DIR} && uv run python pca9685_osc_led_server.py --port {OSC_PORT}"
 LED_STEPS   = 40
 LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
@@ -42,6 +45,8 @@ job_locks = {p: {n: threading.Lock() for n in range(1,NODE_COUNT+1)} for p in PA
 script_logs = {p: {n: "" for n in range(1, NODE_COUNT+1)} for p in ["run", "llm", "tts"]}
 script_logs_lock = threading.Lock()
 
+SSH_SEMAPHORE = threading.Semaphore(20)
+
 def set_job(page, num, status, msg=""):
     jobs[page][num] = {"status": status, "msg": msg}
 def is_running(page, num):
@@ -59,9 +64,26 @@ def ping_ip(ip):
         return False, "offline"
     except:
         return False, "error"
+
+SSH_CONTROL_DIR = "/tmp/bi_ssh_ctrl"
+os.makedirs(SSH_CONTROL_DIR, exist_ok=True)
+
 def ssh_run(ip, cmd, timeout=15):
-    r = subprocess.run(["sshpass","-p",SSH_PASS,"ssh","-o","StrictHostKeyChecking=no","-o","ConnectTimeout=5",f"{SSH_USER}@{ip}",cmd], capture_output=True, text=True, timeout=timeout)
-    return r.returncode, r.stdout.strip(), r.stderr.strip()
+    SSH_SEMAPHORE.acquire()
+    try:
+        ctrl = f"{SSH_CONTROL_DIR}/%r@%h:%p"
+        r = subprocess.run([
+            "sshpass", "-p", SSH_PASS, "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=5",
+            "-o", f"ControlPath={ctrl}",
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPersist=60",
+            f"{SSH_USER}@{ip}", cmd
+        ], capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    finally:
+        SSH_SEMAPHORE.release()
 
 # -- Page 1 SYSTEM workers --
 def _ping_worker(num):
@@ -101,7 +123,7 @@ def _gitpull_worker(num):
             msg = (out.split("\n")[-1])[:24] if out else "done"
             set_job(page, num, "ok", msg)
         else:
-            set_job(page, num, "error", (err or out)[:24] or "git error")
+            set_job(page, num, "error", (err or out)[:40] or "git error")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "timeout")
     except Exception as e:
@@ -131,6 +153,15 @@ def _led_worker(num):
     dt_up = LED_UP_SEC / LED_STEPS
     dt_dn = LED_DN_SEC / LED_STEPS
     try:
+        set_job(page, num, "running", "starting srv...")
+        # OSCサーバーが起動していなければtmuxで起動
+        code, out, _ = ssh_run(ip,
+            f"tmux has-session -t {LED_SERVER_SESSION} 2>/dev/null && echo ALIVE || echo DEAD", timeout=5)
+        if "DEAD" in out:
+            ssh_run(ip,
+                f"tmux new-session -d -s {LED_SERVER_SESSION} '{LED_SERVER_CMD}'", timeout=10)
+            time.sleep(2)  # サーバー起動待ち
+
         set_job(page, num, "running", "fade up...")
         client = udp_client.SimpleUDPClient(ip, OSC_PORT)
         for i in range(LED_STEPS + 1):
@@ -143,7 +174,7 @@ def _led_worker(num):
         client.send_message("/led", 0.0)
         set_job(page, num, "ok", "done / off")
     except Exception as e:
-        set_job(page, num, "error", str(e)[:20])
+        set_job(page, num, "error", str(e)[:40])
     finally:
         try: udp_client.SimpleUDPClient(ip, OSC_PORT).send_message("/led", 0.0)
         except: pass
@@ -157,7 +188,7 @@ def _sound_worker(num):
         set_job(page, num, "running", "playing...")
         code, out, err = ssh_run(node_ip(num), SOUND_CMD, timeout=20)
         if code == 0: set_job(page, num, "ok", "played")
-        else: set_job(page, num, "error", (err or out)[:24] or "error")
+        else: set_job(page, num, "error", (err or out)[:40] or "error")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "timeout")
     except Exception as e:
@@ -177,7 +208,7 @@ def _tmux_start(num, page):
         cmd = f"tmux new-session -d -s {conf['session']} \\; set remain-on-exit on \\; send-keys '{conf['cmd']}' Enter"
         code, out, err = ssh_run(ip, cmd, timeout=30)
         if code == 0: set_job(page, num, "ok", "tmux started")
-        else: set_job(page, num, "error", (err or out)[:24] or "start fail")
+        else: set_job(page, num, "error", (err or out)[:40] or "start fail")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "ssh timeout")
     except Exception as e:
@@ -478,18 +509,18 @@ def make_tmux_html(page_id, title, subtitle, action_prefix, show_test=False):
 </div>
 <div class="test-result" id="testResult"></div>"""
         test_js = """
-async function sendTest(){{
+async function sendTest(){
   const num=document.getElementById('testNum').value;
   const text=document.getElementById('testText').value;
   const el=document.getElementById('testResult');
-  el.className='test-result';el.textContent=`sending to NODE ${{num}} ...`;
-  try{{
-    const r=await fetch('/api/send_test',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{num,text}})}});
+  el.className='test-result';el.textContent='sending to NODE '+num+' ...';
+  try{
+    const r=await fetch('/api/send_test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({num,text})});
     const d=await r.json();
-    if(d.ok){{el.className='test-result ok';el.textContent=`NODE ${{num}}: OK ${{d.stdout}}`;}}
-    else{{el.className='test-result err';el.textContent=`NODE ${{num}}: ERR ${{d.stderr||d.stdout}}`;}}
-  }}catch(e){{el.className='test-result err';el.textContent='Error: '+e;}}
-}}"""
+    if(d.ok){el.className='test-result ok';el.textContent='NODE '+num+': OK '+d.stdout;}
+    else{el.className='test-result err';el.textContent='NODE '+num+': ERR '+(d.stderr||d.stdout);}
+  }catch(e){el.className='test-result err';el.textContent='Error: '+e;}
+}"""
     return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
