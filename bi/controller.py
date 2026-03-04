@@ -1,5 +1,5 @@
 import asyncio
-from typing import List
+from typing import List, Optional
 
 from loguru import logger
 
@@ -21,6 +21,10 @@ class BIController:
         self.input_buffer: List[BIInputData] = []
         self.generated_text = ""
         self.tts_text = ""
+
+        # LED state tracking
+        self._current_led_brightness = 0.0
+        self._pulse_task: Optional[asyncio.Task] = None
 
         # Initialize clients
         self.llm_client = StackFlowLLMClient(config)
@@ -54,6 +58,11 @@ class BIController:
         """Stop the BI cycle"""
         logger.info("Stopping BI cycle")
         self.state = "STOPPED"
+        # Cancel pulse if running
+        if self._pulse_task and not self._pulse_task.done():
+            self._pulse_task.cancel()
+
+    # ========== Phase implementations ==========
 
     async def _receiving_phase(self):
         """Phase 1: Receive input data for specified duration"""
@@ -61,13 +70,11 @@ class BIController:
         receive_duration = self.config.get("cycle", {}).get("receive_duration", 3.0)
         await asyncio.sleep(receive_duration)
 
-        # No longer need _filter_old_data() here - filtering is done in add_input()
         logger.info(f"Buffer size: {len(self.input_buffer)}")
-
         self.state = "GENERATING"
 
     async def _generating_phase(self):
-        """Phase 2: Generate text using LLM"""
+        """Phase 2: Generate text using LLM (LED pulses during wait)"""
         logger.info("GENERATING phase started")
 
         if not self.input_buffer:
@@ -75,8 +82,12 @@ class BIController:
             self.state = "RESTING"
             return
 
-        # LED fade up at the start of active processing
-        await self._led_fade_up()
+        led_config = self.config.get("led_control", {})
+        waiting_max = led_config.get("waiting_max_brightness", 0.6)
+
+        # Fade in from 0 to waiting_max, then start pulsing
+        await self._led_fade(0.0, waiting_max)
+        self._pulse_task = asyncio.create_task(self._led_pulse_loop())
 
         # Concatenate inputs in chronological order
         concatenated_text = self._concatenate_inputs()
@@ -84,7 +95,6 @@ class BIController:
 
         # Generate 2-3 tokens with LLM
         try:
-            # Use soft_prefix_b64 from the latest input data
             sp_b64 = self.input_buffer[-1].soft_prefix_b64
             generated_text = await self.llm_client.generate_text(
                 query=concatenated_text,
@@ -95,39 +105,46 @@ class BIController:
             self.generated_text = generated_text
             self.tts_text = concatenated_text + generated_text
             logger.info(f"Generated text: {generated_text}")
+
+            # Stop pulsing before moving to OUTPUT
+            await self._stop_pulse()
             self.state = "OUTPUT"
+
         except Exception as e:
             logger.error(f"Error in generation: {e}")
-            # Generation failed - fade down LED before resting
-            await self._led_fade_down()
+            # Stop pulsing, fade down, then rest
+            await self._stop_pulse()
+            await self._led_fade(self._current_led_brightness, 0.0)
             self.state = "RESTING"
 
     async def _output_phase(self):
-        """Phase 3: Play TTS and send output (LED is already on from generating phase)"""
+        """Phase 3: Full brightness during TTS playback, then fade out"""
         logger.info("OUTPUT phase started")
 
         # Skip output if buffer is empty
         if not self.input_buffer:
             logger.warning("Empty buffer in output phase, skipping output")
-            await self._led_fade_down()
+            await self._led_fade(self._current_led_brightness, 0.0)
             self.state = "RESTING"
             return
 
-        # Play TTS
+        # Fade up from current brightness to full max (1.0)
+        await self._led_fade(self._current_led_brightness, 1.0)
+
+        # Play TTS (LED stays at max)
         try:
             await self.tts_client.speak_to_file(self.tts_text)
         except Exception as e:
             logger.error(f"Error in TTS: {e}")
 
-        # LED fade down after playback
-        await self._led_fade_down()
+        # Fade down after playback
+        await self._led_fade(1.0, 0.0)
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])
 
-        # Use the lowest relay_count and soft_prefix_b64 from buffer
         lowest_relay_count = min(data.relay_count for data in self.input_buffer)
-        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64  # Use latest soft prefix
+        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64
         logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
 
         try:
@@ -161,6 +178,8 @@ class BIController:
         await asyncio.sleep(rest_duration)
         self.state = "RECEIVING"
 
+    # ========== Input handling ==========
+
     def _concatenate_inputs(self) -> str:
         """Concatenate input texts in received order"""
         return "".join([data.text for data in self.input_buffer])
@@ -169,10 +188,8 @@ class BIController:
         """Add input data to buffer with relay count filtering"""
         max_relay_count = self.config.get("cycle", {}).get("max_relay_count", 6)
 
-        # Enhanced logging for debugging relay count
         logger.debug(f"Relay count check: received={relay_count}, max_relay_count={max_relay_count}")
 
-        # Check relay count immediately - reject data exceeding limit
         if relay_count >= max_relay_count:
             logger.warning(
                 f"Rejected data exceeding relay limit: relay_count={relay_count}, "
@@ -180,7 +197,6 @@ class BIController:
             )
             return
 
-        # Increment relay count for next transmission
         next_relay_count = relay_count + 1
 
         data = BIInputData(soft_prefix_b64=soft_prefix_b64, relay_count=next_relay_count, text=text)
@@ -190,10 +206,16 @@ class BIController:
             f"soft_prefix_b64={soft_prefix_b64[:30]}... (buffer size: {len(self.input_buffer)})"
         )
 
-    async def _led_fade_up(self):
-        """Fade LED up (0.0 -> 1.0) using config parameters"""
-        led_config = self.config.get("led_control", {})
+    # ========== LED control ==========
 
+    async def _led_fade(self, start: float, end: float, duration: float = None):
+        """Fade LED from start brightness to end brightness.
+
+        Uses fade_up_duration or fade_down_duration from config depending
+        on direction, unless an explicit duration is given.
+        Duration is scaled proportionally to the brightness range being covered.
+        """
+        led_config = self.config.get("led_control", {})
         if not led_config.get("enabled", False):
             return
 
@@ -202,28 +224,41 @@ class BIController:
             return
 
         steps = led_config.get("fade_steps", 40)
-        duration = led_config.get("fade_up_duration", 2.0)
-        dt = duration / steps
+        if duration is None:
+            if end >= start:
+                duration = led_config.get("fade_up_duration", 2.0)
+            else:
+                duration = led_config.get("fade_down_duration", 2.0)
 
-        logger.info(f"LED fade up: steps={steps}, duration={duration}s")
+        # Scale duration proportionally to the brightness range being covered
+        full_range = abs(end - start)
+        if full_range < 0.001:
+            # Already at target, just send final value
+            self._send_led(targets, end)
+            self._current_led_brightness = end
+            return
+
+        scaled_duration = duration * full_range
+        dt = scaled_duration / steps
+
+        logger.info(f"LED fade: {start:.2f} -> {end:.2f} ({scaled_duration:.2f}s, {steps} steps)")
 
         for i in range(steps + 1):
-            value = i / steps
-            for target in targets:
-                try:
-                    self.osc_client.send_to_target(target, "/led", value)
-                except Exception as e:
-                    logger.error(f"Failed to send LED fade up to {target}: {e}")
-
+            value = start + (end - start) * (i / steps)
+            self._send_led(targets, value)
+            self._current_led_brightness = value
             if i < steps:
                 await asyncio.sleep(dt)
 
-        logger.debug("LED fade up complete")
+        logger.debug(f"LED fade complete: {end:.2f}")
 
-    async def _led_fade_down(self):
-        """Fade LED down (1.0 -> 0.0) using config parameters"""
+    async def _led_pulse_loop(self):
+        """Continuously pulse LED between waiting_min and waiting_max brightness.
+
+        Runs until cancelled. Uses the same fade_steps / fade_up_duration /
+        fade_down_duration as normal fades, scaled to the waiting brightness range.
+        """
         led_config = self.config.get("led_control", {})
-
         if not led_config.get("enabled", False):
             return
 
@@ -231,24 +266,65 @@ class BIController:
         if not targets:
             return
 
+        waiting_min = led_config.get("waiting_min_brightness", 0.2)
+        waiting_max = led_config.get("waiting_max_brightness", 0.6)
         steps = led_config.get("fade_steps", 40)
-        duration = led_config.get("fade_down_duration", 2.0)
-        dt = duration / steps
+        fade_up_duration = led_config.get("fade_up_duration", 2.0)
+        fade_down_duration = led_config.get("fade_down_duration", 2.0)
 
-        logger.info(f"LED fade down: steps={steps}, duration={duration}s")
+        # Scale durations proportionally to the waiting brightness range
+        brightness_range = waiting_max - waiting_min
+        up_duration = fade_up_duration * brightness_range
+        down_duration = fade_down_duration * brightness_range
+        dt_up = up_duration / steps
+        dt_down = down_duration / steps
 
-        for i in range(steps, -1, -1):
-            value = i / steps
-            for target in targets:
-                try:
-                    self.osc_client.send_to_target(target, "/led", value)
-                except Exception as e:
-                    logger.error(f"Failed to send LED fade down to {target}: {e}")
+        logger.info(
+            f"LED pulse loop started: {waiting_min:.2f} <-> {waiting_max:.2f} "
+            f"(up {up_duration:.2f}s, down {down_duration:.2f}s)"
+        )
 
-            if i > 0:
-                await asyncio.sleep(dt)
+        try:
+            while True:
+                # Fade down: waiting_max -> waiting_min
+                for i in range(steps + 1):
+                    value = waiting_max - (waiting_max - waiting_min) * (i / steps)
+                    self._send_led(targets, value)
+                    self._current_led_brightness = value
+                    if i < steps:
+                        await asyncio.sleep(dt_down)
 
-        logger.debug("LED fade down complete")
+                # Fade up: waiting_min -> waiting_max
+                for i in range(steps + 1):
+                    value = waiting_min + (waiting_max - waiting_min) * (i / steps)
+                    self._send_led(targets, value)
+                    self._current_led_brightness = value
+                    if i < steps:
+                        await asyncio.sleep(dt_up)
+
+        except asyncio.CancelledError:
+            logger.debug(f"LED pulse loop cancelled at brightness {self._current_led_brightness:.2f}")
+            raise
+
+    async def _stop_pulse(self):
+        """Cancel the pulse task if running and wait for clean shutdown."""
+        if self._pulse_task is not None and not self._pulse_task.done():
+            self._pulse_task.cancel()
+            try:
+                await self._pulse_task
+            except asyncio.CancelledError:
+                pass
+        self._pulse_task = None
+
+    def _send_led(self, targets: list, value: float):
+        """Send LED brightness to all configured targets."""
+        for target in targets:
+            try:
+                self.osc_client.send_to_target(target, "/led", value)
+            except Exception as e:
+                logger.error(f"Failed to send LED value to {target}: {e}")
+
+    # ========== Status ==========
 
     def get_status(self) -> dict:
         """Get current status"""
@@ -256,4 +332,5 @@ class BIController:
             "state": self.state,
             "buffer_size": len(self.input_buffer),
             "generated_text": self.generated_text,
+            "led_brightness": self._current_led_brightness,
         }
