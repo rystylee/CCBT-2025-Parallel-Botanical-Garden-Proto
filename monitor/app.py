@@ -714,17 +714,17 @@ PAGES_HTML = {
 }
 
 @app.route("/")
-def page_system(): return render_template_string(make_system_html())
+def page_system(): return make_system_html()
 @app.route("/led")
-def page_led(): return render_template_string(PAGES_HTML["led"])
+def page_led(): return PAGES_HTML["led"]
 @app.route("/sound")
-def page_sound(): return render_template_string(PAGES_HTML["sound"])
+def page_sound(): return PAGES_HTML["sound"]
 @app.route("/llm")
-def page_llm(): return render_template_string(make_tmux_html("llm", "LLM CHECK", "LLMロード検証 — check_llm.py", "llm"))
+def page_llm(): return make_tmux_html("llm", "LLM CHECK", "LLMロード検証 — check_llm.py", "llm")
 @app.route("/tts")
-def page_tts(): return render_template_string(make_tmux_html("tts", "TTS CHECK", "TTSロード検証 — check_tts.py", "tts"))
+def page_tts(): return make_tmux_html("tts", "TTS CHECK", "TTSロード検証 — check_tts.py", "tts")
 @app.route("/run")
-def page_run(): return render_template_string(make_tmux_html("run", "RUN SCRIPTS", "スクリプト実行 (tmux) — SSH切断後も継続", "run", show_test=True))
+def page_run(): return make_tmux_html("run", "RUN SCRIPTS", "スクリプト実行 (tmux) — SSH切断後も継続", "run", show_test=True)
 
 if __name__ == "__main__":
     print("=" * 50)
