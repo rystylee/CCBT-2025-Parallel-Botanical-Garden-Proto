@@ -45,6 +45,8 @@ job_locks = {p: {n: threading.Lock() for n in range(1,NODE_COUNT+1)} for p in PA
 script_logs = {p: {n: "" for n in range(1, NODE_COUNT+1)} for p in ["run", "llm", "tts"]}
 script_logs_lock = threading.Lock()
 
+SSH_SEMAPHORE = threading.Semaphore(20)
+
 def set_job(page, num, status, msg=""):
     jobs[page][num] = {"status": status, "msg": msg}
 def is_running(page, num):
@@ -67,17 +69,21 @@ SSH_CONTROL_DIR = "/tmp/bi_ssh_ctrl"
 os.makedirs(SSH_CONTROL_DIR, exist_ok=True)
 
 def ssh_run(ip, cmd, timeout=15):
-    ctrl = f"{SSH_CONTROL_DIR}/%r@%h:%p"
-    r = subprocess.run([
-        "sshpass", "-p", SSH_PASS, "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=5",
-        "-o", f"ControlPath={ctrl}",
-        "-o", "ControlMaster=auto",
-        "-o", "ControlPersist=60",
-        f"{SSH_USER}@{ip}", cmd
-    ], capture_output=True, text=True, timeout=timeout)
-    return r.returncode, r.stdout.strip(), r.stderr.strip()
+    SSH_SEMAPHORE.acquire()
+    try:
+        ctrl = f"{SSH_CONTROL_DIR}/%r@%h:%p"
+        r = subprocess.run([
+            "sshpass", "-p", SSH_PASS, "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=5",
+            "-o", f"ControlPath={ctrl}",
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPersist=60",
+            f"{SSH_USER}@{ip}", cmd
+        ], capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    finally:
+        SSH_SEMAPHORE.release()
 
 # -- Page 1 SYSTEM workers --
 def _ping_worker(num):
