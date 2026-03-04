@@ -345,7 +345,7 @@ const PAGE='{page_id}';
 const CL=Array.from({{length:10}},(_,i)=>({{s:i*10+1,e:i*10+10,l:`CLUSTER ${{String(i+1).padStart(2,'0')}} \u2014 NODE ${{i*10+1}}\u2013${{i*10+10}}`}}));
 const CBTNS={cluster_btn_defs};let J={{}};
 function build(){{const c=document.getElementById('clusters');c.innerHTML='';CL.forEach((cl,ci)=>{{const d=document.createElement('div');d.className='cluster';const ca=CBTNS.map(([a,cls,l])=>`<button class="cb ${{cls}}" onclick="cAct(${{ci}},'${{a}}')">${{l}}</button>`).join('');d.innerHTML=`<div class="ch"><div class="ct">${{cl.l}}</div><div class="cs" id="cs${{ci}}">\u2014</div><div class="ca">${{ca}}</div></div><div class="grid" id="cg${{ci}}"></div>`;c.appendChild(d);const g=document.getElementById('cg'+ci);for(let i=0;i<10;i++){{const n=cl.s+i;const nd=document.createElement('div');nd.className='node';nd.id='nd'+n;nd.title=`NODE ${{n}}`;nd.onclick=()=>toggleSel(n);nd.innerHTML=`<div class="nn">NODE ${{n}}</div><div class="dot"></div><div class="nl" id="nl${{n}}">\u2014</div>`;g.appendChild(nd);}}}});}}
-function applyStatus(d){{J=d;let ok=0,ng=0,run=0,idle=0;for(let n=1;n<=100;n++){{const j=d[n]||{{status:'idle',msg:''}};const nd=document.getElementById('nd'+n),nl=document.getElementById('nl'+n);if(!nd)continue;nd.className='node st-'+j.status;nl.textContent=j.msg||j.status;if(j.status==='ok')ok++;else if(j.status==='error')ng++;else if(j.status==='running')run++;else idle++;}}document.getElementById('summary').textContent=`OK:${{ok}} ERR:${{ng}} RUN:${{run}} IDLE:${{idle}}`;CL.forEach((cl,ci)=>{{let co=0,cn=0,cr=0;for(let i=0;i<10;i++){{const j=d[cl.s+i];if(!j)continue;if(j.status==='ok')co++;else if(j.status==='error')cn++;else if(j.status==='running')cr++;}}const el=document.getElementById('cs'+ci);if(el){{el.textContent=`${{co}}ok/${{cn}}err/${{cr}}run`;el.style.color=co===10?'var(--ok)':cn>0?'var(--ng)':cr>0?'var(--run)':'var(--dim)';}}}});document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();}}
+function applyStatus(d){{J=d;let ok=0,ng=0,run=0,idle=0;for(let n=1;n<=100;n++){{const j=d[n]||{{status:'idle',msg:''}};const nd=document.getElementById('nd'+n),nl=document.getElementById('nl'+n);if(!nd)continue;nd.className='node st-'+j.status+(sel.has(n)?' selected':'');nl.textContent=j.msg||j.status;if(j.status==='ok')ok++;else if(j.status==='error')ng++;else if(j.status==='running')run++;else idle++;}}document.getElementById('summary').textContent=`OK:${{ok}} ERR:${{ng}} RUN:${{run}} IDLE:${{idle}}`;CL.forEach((cl,ci)=>{{let co=0,cn=0,cr=0;for(let i=0;i<10;i++){{const j=d[cl.s+i];if(!j)continue;if(j.status==='ok')co++;else if(j.status==='error')cn++;else if(j.status==='running')cr++;}}const el=document.getElementById('cs'+ci);if(el){{el.textContent=`${{co}}ok/${{cn}}err/${{cr}}run`;el.style.color=co===10?'var(--ok)':cn>0?'var(--ng)':cr>0?'var(--run)':'var(--dim)';}}}});document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();}}
 async function poll(){{try{{const r=await fetch('/api/status/'+PAGE);applyStatus(await r.json())}}catch(e){{}}}}
 async function runNums(action,nums){{await fetch('/api/run',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action,page:PAGE,nums}})}});}}
 async function resetNums(nums){{await fetch('/api/reset',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{page:PAGE,nums}})}});await poll();}}
@@ -525,13 +525,6 @@ def make_run_html():
   <span class="btn" id="selCount" style="cursor:default;border-color:var(--accent);color:var(--accent);font-size:.6rem">all</span>
   <div style="flex:1"></div>
   <span class="btn" id="summary" style="cursor:default;border-color:transparent">—</span>
-  <button class="btn bp" onclick="runNums('run_start',getSelNums())">&#9654; START</button>
-  <button class="btn bd" onclick="if(confirm('選択ノードのスクリプトを停止しますか?'))runNums('run_stop',getSelNums())">&#9632; STOP</button>
-  <button class="btn b2" onclick="runNums('run_check',getSelNums())">&#8635; CHECK</button>
-  <button class="btn" onclick="selAll()">SELECT ALL</button>
-  <button class="btn" onclick="clearSel()">CLEAR</button>
-  <button class="btn" onclick="resetNums(getSelNums())">RESET</button>
-  <span class="btn" id="selCount" style="cursor:default;border-color:var(--accent);color:var(--accent);font-size:.6rem">all</span>
 </div>
 
 <!-- test command panel -->
@@ -552,13 +545,6 @@ def make_run_html():
 const PAGE='run';
 const CL=Array.from({{length:10}},(_,i)=>({{s:i*10+1,e:i*10+10,l:`CLUSTER ${{String(i+1).padStart(2,'0')}} \u2014 NODE ${{i*10+1}}\u2013${{i*10+10}}`}}));
 let J={{}};
-let sel=new Set();
-function toggleSel(n){{const nd=document.getElementById('nd'+n);if(sel.has(n)){{sel.delete(n);nd.classList.remove('selected');}}else{{sel.add(n);nd.classList.add('selected');}}updSelBtn();}}
-function selCluster(ci){{clNums(ci).forEach(n=>{{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}});updSelBtn();}}
-function clearSel(){{sel.forEach(n=>{{const nd=document.getElementById('nd'+n);if(nd)nd.classList.remove('selected');}});sel.clear();updSelBtn();}}
-function selAll(){{for(let n=1;n<=100;n++){{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}};updSelBtn();}}
-function getSelNums(){{return sel.size>0?Array.from(sel):allNums();}}
-function updSelBtn(){{const el=document.getElementById('selCount');if(el)el.textContent=sel.size>0?sel.size+' selected':'all';}}
 
 function allNums(){{return Array.from({{length:100}},(_,i)=>i+1);}}
 function clNums(ci){{const cl=CL[ci];return Array.from({{length:10}},(_,i)=>cl.s+i);}}
@@ -665,7 +651,7 @@ function applyStatus(d){{
     const j=d[n]||{{status:'idle',msg:''}};
     const nd=document.getElementById('nd'+n),nl=document.getElementById('nl'+n);
     if(!nd)continue;
-    nd.className='node st-'+j.status;
+    nd.className='node st-'+j.status+(sel.has(n)?' selected':'');
     nl.textContent=j.msg||j.status;
     if(j.status==='ok')ok++;else if(j.status==='error')ng++;else if(j.status==='running')run++;else idle++;
   }}
