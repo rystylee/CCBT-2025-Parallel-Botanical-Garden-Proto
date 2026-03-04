@@ -102,7 +102,7 @@ class BIController:
                 soft_prefix_b64=sp_b64,
                 soft_prefix_len=P,
             )
-            self.generated_text = generated_text.strip()
+            self.generated_text = generated_text.replace("\n", " ").strip()
             self.tts_text = concatenated_text + generated_text.strip()
             logger.info(f"Generated text: {generated_text.strip()}")
 
