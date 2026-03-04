@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, render_template_string
 from pythonosc import udp_client
 import threading, time, subprocess, getpass
 import os
+import bi_logger
 
 app = Flask(__name__)
 NODE_PREFIX = "10.0.0"
@@ -96,6 +97,8 @@ def _ping_worker(num):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        bi_logger.log_system("ping", num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 def _internet_worker(num):
@@ -111,6 +114,8 @@ def _internet_worker(num):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        bi_logger.log_system("inet", num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 def _gitpull_worker(num):
@@ -129,6 +134,8 @@ def _gitpull_worker(num):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        bi_logger.log_system("gitpull", num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 def _reboot_worker(num):
@@ -143,6 +150,8 @@ def _reboot_worker(num):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        bi_logger.log_system("reboot", num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 # -- Page 2 LED --
@@ -180,6 +189,8 @@ def _led_worker(num):
     finally:
         try: udp_client.SimpleUDPClient(ip, OSC_PORT).send_message("/led", 0.0)
         except: pass
+        j = jobs[page][num]
+        bi_logger.log_led(num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 # -- Page 3 Sound --
@@ -196,6 +207,8 @@ def _sound_worker(num):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        bi_logger.log_sound(num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 # -- Generic tmux workers (run / llm / tts) --
@@ -216,6 +229,13 @@ def _tmux_start(num, page):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        if page == "run":
+            bi_logger.log_run_start(num, j["status"], j["msg"])
+        elif page == "llm":
+            bi_logger.log_llm("start", num, j["status"], j["msg"])
+        elif page == "tts":
+            bi_logger.log_tts("start", num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 def _tmux_stop(num, page):
@@ -230,6 +250,13 @@ def _tmux_stop(num, page):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        if page == "run":
+            bi_logger.log_run_stop(num, j["status"], j["msg"])
+        elif page == "llm":
+            bi_logger.log_llm("stop", num, j["status"], j["msg"])
+        elif page == "tts":
+            bi_logger.log_tts("stop", num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 def _tmux_check(num, page):
@@ -246,6 +273,13 @@ def _tmux_check(num, page):
     except Exception as e:
         set_job(page, num, "error", str(e)[:20])
     finally:
+        j = jobs[page][num]
+        if page == "run":
+            bi_logger.log_run_check(num, j["status"], j["msg"])
+        elif page == "llm":
+            bi_logger.log_llm("check", num, j["status"], j["msg"])
+        elif page == "tts":
+            bi_logger.log_tts("check", num, j["status"], j["msg"])
         job_locks[page][num].release()
 
 def _tmux_fetch_log(num, page):
@@ -285,8 +319,22 @@ def api_status(page):
 @app.route("/api/run", methods=["POST"])
 def api_run():
     d = request.json
-    for num in d.get("nums", []):
-        run_worker(d.get("action"), int(num))
+    action = d.get("action", "")
+    nums   = d.get("nums", [])
+    # バッチ操作の見出し行をログに残す
+    if nums:
+        _ACTION_CATEGORY = {
+            "ping": "system", "inet": "system", "gitpull": "system", "reboot": "system",
+            "led": "led", "sound": "sound",
+            "llm_start": "llm", "llm_stop": "llm", "llm_check": "llm",
+            "tts_start": "tts", "tts_stop": "tts", "tts_check": "tts",
+            "run_start": "run", "run_stop": "run", "run_check": "run",
+        }
+        cat = _ACTION_CATEGORY.get(action)
+        if cat:
+            bi_logger.log_batch(cat, action, len(nums))
+    for num in nums:
+        run_worker(action, int(num))
     return jsonify({"ok": True})
 
 @app.route("/api/reset", methods=["POST"])
@@ -330,10 +378,14 @@ def api_send_test():
     try:
         r = subprocess.run(["python3", SEND_SCRIPT, "-H", node_ip(num), "-t", text],
             capture_output=True, text=True, timeout=15)
-        return jsonify({"ok": r.returncode==0, "stdout": r.stdout.strip(), "stderr": r.stderr.strip()})
+        ok = r.returncode == 0
+        bi_logger.log_run_test_input(num, text, ok, r.stdout.strip(), r.stderr.strip())
+        return jsonify({"ok": ok, "stdout": r.stdout.strip(), "stderr": r.stderr.strip()})
     except subprocess.TimeoutExpired:
+        bi_logger.log_run_test_input(num, text, False, "", "timeout")
         return jsonify({"ok": False, "stdout": "", "stderr": "timeout"})
     except Exception as e:
+        bi_logger.log_run_test_input(num, text, False, "", str(e))
         return jsonify({"ok": False, "stdout": "", "stderr": str(e)})
 
 
