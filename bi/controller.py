@@ -216,7 +216,11 @@ class BIController:
 
         next_relay_count = relay_count + 1
 
-        data = BIInputData(soft_prefix_b64=soft_prefix_b64, relay_count=next_relay_count, text=text)
+        data = BIInputData(
+            soft_prefix_b64=soft_prefix_b64,
+            relay_count=next_relay_count,
+            text=text.strip() 
+        )
         self.input_buffer.append(data)
         logger.info(
             f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
