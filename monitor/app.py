@@ -101,7 +101,7 @@ def _gitpull_worker(num):
             msg = (out.split("\n")[-1])[:24] if out else "done"
             set_job(page, num, "ok", msg)
         else:
-            set_job(page, num, "error", (err or out)[:24] or "git error")
+            set_job(page, num, "error", (err or out)[:40] or "git error")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "timeout")
     except Exception as e:
@@ -157,7 +157,7 @@ def _sound_worker(num):
         set_job(page, num, "running", "playing...")
         code, out, err = ssh_run(node_ip(num), SOUND_CMD, timeout=20)
         if code == 0: set_job(page, num, "ok", "played")
-        else: set_job(page, num, "error", (err or out)[:24] or "error")
+        else: set_job(page, num, "error", (err or out)[:40] or "error")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "timeout")
     except Exception as e:
@@ -177,7 +177,7 @@ def _tmux_start(num, page):
         cmd = f"tmux new-session -d -s {conf['session']} \\; set remain-on-exit on \\; send-keys '{conf['cmd']}' Enter"
         code, out, err = ssh_run(ip, cmd, timeout=30)
         if code == 0: set_job(page, num, "ok", "tmux started")
-        else: set_job(page, num, "error", (err or out)[:24] or "start fail")
+        else: set_job(page, num, "error", (err or out)[:40] or "start fail")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "ssh timeout")
     except Exception as e:
@@ -478,7 +478,7 @@ def make_tmux_html(page_id, title, subtitle, action_prefix, show_test=False):
 </div>
 <div class="test-result" id="testResult"></div>"""
         test_js = """
-async function sendTest(){{
+async function sendTest(){
   const num=document.getElementById('testNum').value;
   const text=document.getElementById('testText').value;
   const el=document.getElementById('testResult');
@@ -489,7 +489,7 @@ async function sendTest(){{
     if(d.ok){{el.className='test-result ok';el.textContent=`NODE ${{num}}: OK ${{d.stdout}}`;}}
     else{{el.className='test-result err';el.textContent=`NODE ${{num}}: ERR ${{d.stderr||d.stdout}}`;}}
   }}catch(e){{el.className='test-result err';el.textContent='Error: '+e;}}
-}}"""
+}"""
     return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
