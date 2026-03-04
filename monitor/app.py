@@ -321,6 +321,8 @@ nav{display:flex;}
 .nl{font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--dim);text-align:center;word-break:break-all;line-height:1.3;}
 .st-ok .nl{color:var(--ok);}.st-error .nl{color:var(--ng);}.st-running .nl{color:var(--run);}
 .footer{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--dim);padding:6px 20px 12px;}
+.node.selected{outline:2px solid var(--accent);outline-offset:-2px;}
+.node.selected .nn{color:var(--accent);}
 """
 
 NAV_TABS = [("/","system","01 SYSTEM"),("/led","led","02 LED"),("/sound","sound","03 SOUND"),("/run","run","04 RUN")]
@@ -342,13 +344,20 @@ def make_html(page_id, title, subtitle, toolbar_html, cluster_btn_defs, js_actio
 const PAGE='{page_id}';
 const CL=Array.from({{length:10}},(_,i)=>({{s:i*10+1,e:i*10+10,l:`CLUSTER ${{String(i+1).padStart(2,'0')}} \u2014 NODE ${{i*10+1}}\u2013${{i*10+10}}`}}));
 const CBTNS={cluster_btn_defs};let J={{}};
-function build(){{const c=document.getElementById('clusters');c.innerHTML='';CL.forEach((cl,ci)=>{{const d=document.createElement('div');d.className='cluster';const ca=CBTNS.map(([a,cls,l])=>`<button class="cb ${{cls}}" onclick="cAct(${{ci}},'${{a}}')">${{l}}</button>`).join('');d.innerHTML=`<div class="ch"><div class="ct">${{cl.l}}</div><div class="cs" id="cs${{ci}}">\u2014</div><div class="ca">${{ca}}</div></div><div class="grid" id="cg${{ci}}"></div>`;c.appendChild(d);const g=document.getElementById('cg'+ci);for(let i=0;i<10;i++){{const n=cl.s+i;const nd=document.createElement('div');nd.className='node';nd.id='nd'+n;nd.title=`NODE ${{n}}`;nd.onclick=()=>nodeClick(n);nd.innerHTML=`<div class="nn">NODE ${{n}}</div><div class="dot"></div><div class="nl" id="nl${{n}}">\u2014</div>`;g.appendChild(nd);}}}});}}
+function build(){{const c=document.getElementById('clusters');c.innerHTML='';CL.forEach((cl,ci)=>{{const d=document.createElement('div');d.className='cluster';const ca=CBTNS.map(([a,cls,l])=>`<button class="cb ${{cls}}" onclick="cAct(${{ci}},'${{a}}')">${{l}}</button>`).join('');d.innerHTML=`<div class="ch"><div class="ct">${{cl.l}}</div><div class="cs" id="cs${{ci}}">\u2014</div><div class="ca">${{ca}}</div></div><div class="grid" id="cg${{ci}}"></div>`;c.appendChild(d);const g=document.getElementById('cg'+ci);for(let i=0;i<10;i++){{const n=cl.s+i;const nd=document.createElement('div');nd.className='node';nd.id='nd'+n;nd.title=`NODE ${{n}}`;nd.onclick=()=>toggleSel(n);nd.innerHTML=`<div class="nn">NODE ${{n}}</div><div class="dot"></div><div class="nl" id="nl${{n}}">\u2014</div>`;g.appendChild(nd);}}}});}}
 function applyStatus(d){{J=d;let ok=0,ng=0,run=0,idle=0;for(let n=1;n<=100;n++){{const j=d[n]||{{status:'idle',msg:''}};const nd=document.getElementById('nd'+n),nl=document.getElementById('nl'+n);if(!nd)continue;nd.className='node st-'+j.status;nl.textContent=j.msg||j.status;if(j.status==='ok')ok++;else if(j.status==='error')ng++;else if(j.status==='running')run++;else idle++;}}document.getElementById('summary').textContent=`OK:${{ok}} ERR:${{ng}} RUN:${{run}} IDLE:${{idle}}`;CL.forEach((cl,ci)=>{{let co=0,cn=0,cr=0;for(let i=0;i<10;i++){{const j=d[cl.s+i];if(!j)continue;if(j.status==='ok')co++;else if(j.status==='error')cn++;else if(j.status==='running')cr++;}}const el=document.getElementById('cs'+ci);if(el){{el.textContent=`${{co}}ok/${{cn}}err/${{cr}}run`;el.style.color=co===10?'var(--ok)':cn>0?'var(--ng)':cr>0?'var(--run)':'var(--dim)';}}}});document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();}}
 async function poll(){{try{{const r=await fetch('/api/status/'+PAGE);applyStatus(await r.json())}}catch(e){{}}}}
 async function runNums(action,nums){{await fetch('/api/run',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action,page:PAGE,nums}})}});}}
 async function resetNums(nums){{await fetch('/api/reset',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{page:PAGE,nums}})}});await poll();}}
 function allNums(){{return Array.from({{length:100}},(_,i)=>i+1);}}
 function clNums(ci){{const cl=CL[ci];return Array.from({{length:10}},(_,i)=>cl.s+i);}}
+let sel=new Set();
+function toggleSel(n){{const nd=document.getElementById('nd'+n);if(sel.has(n)){{sel.delete(n);nd.classList.remove('selected');}}else{{sel.add(n);nd.classList.add('selected');}}updSelBtn();}}
+function selCluster(ci){{clNums(ci).forEach(n=>{{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}});updSelBtn();}}
+function clearSel(){{sel.forEach(n=>{{const nd=document.getElementById('nd'+n);if(nd)nd.classList.remove('selected');}});sel.clear();updSelBtn();}}
+function selAll(){{for(let n=1;n<=100;n++){{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}};updSelBtn();}}
+function getSelNums(){{return sel.size>0?Array.from(sel):allNums();}}
+function updSelBtn(){{const el=document.getElementById('selCount');if(el)el.textContent=sel.size>0?sel.size+' selected':'all';}}
 {js_actions}
 build();poll();setInterval(poll,1500);
 </script></body></html>"""
@@ -374,7 +383,7 @@ def make_system_html():
 <div class="toolbar">
   <button class="btn bp" onclick="runNums('ping',allNums())">&#9654; PING ALL</button>
   <button class="btn b2" onclick="runNums('inet',allNums())">&#9654; INET ALL</button>
-  <button class="btn" onclick="runNums('gitpull',allNums())">&#9654; GIT PULL ALL</button>
+  <button class="btn" onclick="if(confirm('GIT PULL ALL 100 NODES?'))runNums('gitpull',allNums())">&#9654; GIT PULL ALL</button>
   <button class="btn bd" onclick="if(confirm('REBOOT ALL 100 NODES?\\n\u3053\u306e\u64cd\u4f5c\u306f\u5143\u306b\u623b\u305b\u307e\u305b\u3093'))runNums('reboot',allNums())">&#9888; REBOOT ALL</button>
   <button class="btn bd" onclick="resetNums(allNums())">RESET</button>
   <div class="sep"></div>
@@ -412,6 +421,7 @@ function build(){{
 async function cAct(ci,a){{
   if(a==='reset')await resetNums(clNums(ci));
   else if(a==='reboot'){{if(confirm('REBOOT CLUSTER '+(ci+1)+'?'))await runNums('reboot',clNums(ci));}}
+  else if(a==='gitpull'){if(confirm('GIT PULL CLUSTER '+(ci+1)+'?'))await runNums('gitpull',clNums(ci));}
   else await runNums(a,clNums(ci));
 }}
 async function nodeClick(n){{
@@ -506,12 +516,22 @@ def make_run_html():
 
 <!-- toolbar -->
 <div class="toolbar">
-  <button class="btn bp" onclick="runNums('run_start',allNums())">&#9654; START ALL</button>
-  <button class="btn bd" onclick="if(confirm('全ノードのスクリプトを停止しますか?'))runNums('run_stop',allNums())">&#9632; STOP ALL</button>
-  <button class="btn b2" onclick="runNums('run_check',allNums())">&#8635; CHECK ALL</button>
-  <button class="btn" onclick="resetNums(allNums())">RESET</button>
+  <button class="btn bp" onclick="runNums('run_start',getSelNums())">&#9654; START</button>
+  <button class="btn bd" onclick="if(confirm('選択ノードのスクリプトを停止しますか?'))runNums('run_stop',getSelNums())">&#9632; STOP</button>
+  <button class="btn b2" onclick="runNums('run_check',getSelNums())">&#8635; CHECK</button>
+  <button class="btn" onclick="resetNums(getSelNums())">RESET</button>
+  <button class="btn b2" onclick="selAll()">SELECT ALL</button>
+  <button class="btn" onclick="clearSel()">CLEAR</button>
+  <span class="btn" id="selCount" style="cursor:default;border-color:var(--accent);color:var(--accent);font-size:.6rem">all</span>
   <div style="flex:1"></div>
   <span class="btn" id="summary" style="cursor:default;border-color:transparent">—</span>
+  <button class="btn bp" onclick="runNums('run_start',getSelNums())">&#9654; START</button>
+  <button class="btn bd" onclick="if(confirm('選択ノードのスクリプトを停止しますか?'))runNums('run_stop',getSelNums())">&#9632; STOP</button>
+  <button class="btn b2" onclick="runNums('run_check',getSelNums())">&#8635; CHECK</button>
+  <button class="btn" onclick="selAll()">SELECT ALL</button>
+  <button class="btn" onclick="clearSel()">CLEAR</button>
+  <button class="btn" onclick="resetNums(getSelNums())">RESET</button>
+  <span class="btn" id="selCount" style="cursor:default;border-color:var(--accent);color:var(--accent);font-size:.6rem">all</span>
 </div>
 
 <!-- test command panel -->
@@ -532,6 +552,13 @@ def make_run_html():
 const PAGE='run';
 const CL=Array.from({{length:10}},(_,i)=>({{s:i*10+1,e:i*10+10,l:`CLUSTER ${{String(i+1).padStart(2,'0')}} \u2014 NODE ${{i*10+1}}\u2013${{i*10+10}}`}}));
 let J={{}};
+let sel=new Set();
+function toggleSel(n){{const nd=document.getElementById('nd'+n);if(sel.has(n)){{sel.delete(n);nd.classList.remove('selected');}}else{{sel.add(n);nd.classList.add('selected');}}updSelBtn();}}
+function selCluster(ci){{clNums(ci).forEach(n=>{{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}});updSelBtn();}}
+function clearSel(){{sel.forEach(n=>{{const nd=document.getElementById('nd'+n);if(nd)nd.classList.remove('selected');}});sel.clear();updSelBtn();}}
+function selAll(){{for(let n=1;n<=100;n++){{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}};updSelBtn();}}
+function getSelNums(){{return sel.size>0?Array.from(sel):allNums();}}
+function updSelBtn(){{const el=document.getElementById('selCount');if(el)el.textContent=sel.size>0?sel.size+' selected':'all';}}
 
 function allNums(){{return Array.from({{length:100}},(_,i)=>i+1);}}
 function clNums(ci){{const cl=CL[ci];return Array.from({{length:10}},(_,i)=>cl.s+i);}}
@@ -566,7 +593,7 @@ function build(){{
           <button class="cb" onclick="runNums('run_start',clNums(${{ci}}))">START</button>
           <button class="cb" onclick="runNums('run_stop',clNums(${{ci}}))">STOP</button>
           <button class="cb c2" onclick="runNums('run_check',clNums(${{ci}}))">CHECK</button>
-          <button class="cb c2" onclick="resetNums(clNums(${{ci}}))">RST</button>
+          <button class="cb c2" onclick="resetNums(clNums(${{ci}}))">RST</button><button class="cb" onclick="selCluster(${{ci}})">SEL</button>
           <button class="log-toggle" id="lt${{ci}}" onclick="toggleLog(${{ci}})">LOG ▼</button>
         </div>
       </div>
@@ -582,7 +609,7 @@ function build(){{
       const nd=document.createElement('div');
       nd.className='node';nd.id='nd'+n;
       nd.title=`NODE ${{n}} (10.0.0.${{n}})`;
-      nd.onclick=()=>nodeClick(n);
+      nd.onclick=()=>toggleSel(n);
       nd.innerHTML=`<div class="nn">NODE ${{n}}</div><div class="dot"></div><div class="nl" id="nl${{n}}">—</div>`;
       g.appendChild(nd);
     }}
@@ -629,10 +656,7 @@ async function refreshLog(n){{
 }}
 
 // === ノードクリック: check状態 ===
-async function nodeClick(n){{
-  if(J[n]&&J[n].status==='running')return;
-  await runNums('run_check',[n]);
-}}
+async function nodeClick(n){{toggleSel(n);}}
 
 // === ステータス更新 ===
 function applyStatus(d){{
@@ -654,6 +678,14 @@ function applyStatus(d){{
   }});
   document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();
 }}
+
+let sel=new Set();
+function toggleSel(n){{const nd=document.getElementById('nd'+n);if(sel.has(n)){{sel.delete(n);nd.classList.remove('selected');}}else{{sel.add(n);nd.classList.add('selected');}}updSelBtn();}}
+function selCluster(ci){{clNums(ci).forEach(n=>{{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}});updSelBtn();}}
+function clearSel(){{sel.forEach(n=>{{const nd=document.getElementById('nd'+n);if(nd)nd.classList.remove('selected');}});sel.clear();updSelBtn();}}
+function selAll(){{for(let n=1;n<=100;n++){{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}};updSelBtn();}}
+function getSelNums(){{return sel.size>0?Array.from(sel):allNums();}}
+function updSelBtn(){{const el=document.getElementById('selCount');if(el)el.textContent=sel.size>0?sel.size+' selected':'all';}}
 
 async function poll(){{try{{const r=await fetch('/api/status/'+PAGE);applyStatus(await r.json())}}catch(e){{}}}}
 
@@ -678,15 +710,35 @@ setInterval(autoRefreshLogs,5000);
 # ── Static pages ─────────────────────────────────────────────────────────────
 PAGES_HTML = {
     "led": make_html("led", "LED CHECK",
-        "\u70b9\u706f\u78ba\u8a8d \u2014 \u30d5\u30a7\u30fc\u30c9\u30a2\u30c3\u30d7\u2192\u30d5\u30a7\u30fc\u30c9\u30c0\u30a6\u30f3\uff08\u5fc5\u305aOFF\u306b\u623b\u3057\u307e\u3059\uff09",
-        '<button class="btn bp" onclick="runNums(\'led\',allNums())">&#9654; RUN ALL</button><button class="btn bd" onclick="resetNums(allNums())">RESET</button>',
-        '[["led","","RUN"],["reset","c2","RST"]]',
-        'async function cAct(ci,a){if(a==="reset")await resetNums(clNums(ci));else await runNums("led",clNums(ci));}\nasync function nodeClick(n){if(J[n]&&J[n].status==="running")return;await runNums("led",[n]);}'),
+            "\u70b9\u706f\u78ba\u8a8d \u2014 \u30d5\u30a7\u30fc\u30c9\u30a2\u30c3\u30d7\u2192\u30d5\u30a7\u30fc\u30c9\u30c0\u30a6\u30f3\uff08\u5fc5\u305aOFF\u306b\u623b\u3057\u307e\u3059\uff09",
+            '<button class="btn bp" onclick="runNums(\'led\',getSelNums())">&#9654; RUN</button>'
+            '<button class="btn b2" onclick="selAll()">SELECT ALL</button>'
+            '<button class="btn" onclick="clearSel()">CLEAR</button>'
+            '<button class="btn bd" onclick="resetNums(getSelNums())">RESET</button>'
+            '<span class="btn" id="selCount" style="cursor:default;border-color:var(--accent);color:var(--accent);font-size:.6rem">all</span>',
+            '[["led","","RUN"],["sel","c2","SEL"],["reset","","RST"]]',
+            """
+    async function cAct(ci,a){
+      if(a==='reset')await resetNums(clNums(ci));
+      else if(a==='sel')selCluster(ci);
+      else await runNums('led',clNums(ci));
+    }
+    """),
     "sound": make_html("sound", "SOUND CHECK",
-        "\u30b5\u30a6\u30f3\u30c9\u30c1\u30a7\u30c3\u30af \u2014 tinyplay",
-        '<button class="btn bp" onclick="runNums(\'sound\',allNums())">&#9654; RUN ALL</button><button class="btn bd" onclick="resetNums(allNums())">RESET</button>',
-        '[["sound","","PLAY"],["reset","c2","RST"]]',
-        'async function cAct(ci,a){if(a==="reset")await resetNums(clNums(ci));else await runNums("sound",clNums(ci));}\nasync function nodeClick(n){if(J[n]&&J[n].status==="running")return;await runNums("sound",[n]);}'),
+            "\u30b5\u30a6\u30f3\u30c9\u30c1\u30a7\u30c3\u30af \u2014 tinyplay",
+            '<button class="btn bp" onclick="runNums(\'sound\',getSelNums())">&#9654; PLAY</button>'
+            '<button class="btn b2" onclick="selAll()">SELECT ALL</button>'
+            '<button class="btn" onclick="clearSel()">CLEAR</button>'
+            '<button class="btn bd" onclick="resetNums(getSelNums())">RESET</button>'
+            '<span class="btn" id="selCount" style="cursor:default;border-color:var(--accent);color:var(--accent);font-size:.6rem">all</span>',
+            '[["sound","","PLAY"],["sel","c2","SEL"],["reset","","RST"]]',
+            """
+    async function cAct(ci,a){
+      if(a==='reset')await resetNums(clNums(ci));
+      else if(a==='sel')selCluster(ci);
+      else await runNums('sound',clNums(ci));
+    }
+    """),
 }
 
 @app.route("/")
