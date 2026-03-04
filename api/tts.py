@@ -276,6 +276,70 @@ class StackFlowTTSClient:
         logger.info(f"lang: {lang}")
         logger.info(f"model: {self.model}")
 
+    def prepare_wav_sync(self, text: str) -> str | None:
+        """
+        Synchronous version of prepare_wav for use with asyncio.to_thread.
+
+        Generate and convert WAV file, return path for playback.
+        """
+        audio_config = self.config.get("audio", {})
+
+        temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
+        enable_ffmpeg = audio_config.get("enable_ffmpeg_convert", True)
+        enable_rumble = audio_config.get("enable_rumble_effect", False)
+        sample_rate = audio_config.get("sample_rate", 48000)
+        channels = audio_config.get("channels", 2)
+        sample_format = audio_config.get("sample_format", "s16")
+
+        os.makedirs(temp_wav_dir, exist_ok=True)
+
+        timestamp = time.time()
+        raw_wav_path = os.path.join(temp_wav_dir, f"tts_raw_{timestamp}.wav")
+        final_wav_path = os.path.join(temp_wav_dir, f"tts_final_{timestamp}.wav")
+
+        try:
+            logger.info(f"Generating WAV file: {text[:50]}...")
+            tts_generate_wav(text, self.model, raw_wav_path)
+
+            if enable_ffmpeg:
+                logger.info("Converting WAV file with FFmpeg...")
+                if enable_rumble:
+                    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
+                    pitch_steps = random.uniform(pitch_range["min"], pitch_range["max"])
+                    sub_oct_mix = audio_config.get("rumble_sub_oct_mix", 0.55)
+                    rumble_mix = audio_config.get("rumble_mix", 0.25)
+                    rumble_base_hz = audio_config.get("rumble_base_hz", 55.0)
+                    drive = audio_config.get("rumble_drive", 0.55)
+                    xover_hz = audio_config.get("rumble_xover_hz", 280.0)
+
+                    ffmpeg_convert_for_tinyplay_with_rumble(
+                        raw_wav_path, final_wav_path,
+                        sample_rate, channels, sample_format,
+                        pitch_steps, sub_oct_mix, rumble_mix,
+                        rumble_base_hz, drive, xover_hz,
+                    )
+                else:
+                    ffmpeg_convert_for_tinyplay(
+                        raw_wav_path, final_wav_path,
+                        32000, channels, sample_format,
+                    )
+                # Remove raw file, keep final
+                if os.path.exists(raw_wav_path):
+                    os.remove(raw_wav_path)
+                return final_wav_path
+            else:
+                return raw_wav_path
+
+        except Exception as e:
+            logger.error(f"WAV preparation failed: {e}")
+            for p in [raw_wav_path, final_wav_path]:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+            return None
+
     async def prepare_wav(self, text: str) -> str | None:
         """
         Generate and convert WAV file, return path for playback.
@@ -364,6 +428,26 @@ class StackFlowTTSClient:
         logger.info(f"Starting tinyplay: {' '.join(cmd)}")
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         return proc
+
+    def play_wav_sync(self, wav_path: str) -> None:
+        """
+        Play WAV file using tinyplay (blocking, for use with asyncio.to_thread).
+        """
+        import subprocess
+
+        audio_config = self.config.get("audio", {})
+        card = audio_config.get("tinyplay_card", 0)
+        device = audio_config.get("tinyplay_device", 1)
+
+        cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
+        logger.info(f"Starting tinyplay: {' '.join(cmd)}")
+
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            logger.info(f"tinyplay playback completed: {wav_path}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"tinyplay playback failed: {e.stderr}")
+            raise RuntimeError(f"tinyplay playback failed: {e.stderr}")
 
     def cleanup_wav(self, wav_path: str) -> None:
         """Remove temporary WAV file."""

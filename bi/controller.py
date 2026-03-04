@@ -106,8 +106,7 @@ class BIController:
             self.tts_text = concatenated_text + generated_text
             logger.info(f"Generated text: {generated_text}")
 
-            # Stop pulsing before moving to OUTPUT
-            await self._stop_pulse()
+            # Keep pulse running — it will continue during WAV preparation in OUTPUT phase
             self.state = "OUTPUT"
 
         except Exception as e:
@@ -118,27 +117,45 @@ class BIController:
             self.state = "RESTING"
 
     async def _output_phase(self):
-        """Phase 3: Full brightness during TTS playback, then fade out"""
+        """Phase 3: Prepare WAV (while pulsing), then full brightness + immediate playback"""
         logger.info("OUTPUT phase started")
 
         # Skip output if buffer is empty
         if not self.input_buffer:
             logger.warning("Empty buffer in output phase, skipping output")
+            await self._stop_pulse()
             await self._led_fade(self._current_led_brightness, 0.0)
             self.state = "RESTING"
             return
 
-        # Fade up from current brightness to full max (1.0)
+        # Step 1: Prepare WAV file while LED keeps pulsing
+        #   prepare_wav_sync is blocking (TTS API + FFmpeg), so run in thread
+        #   to let pulse_loop keep running on the event loop
+        logger.info("Preparing WAV file (LED pulsing continues)...")
+        wav_path = await asyncio.to_thread(self.tts_client.prepare_wav_sync, self.tts_text)
+
+        # Step 2: Stop pulsing, fade up to full brightness
+        await self._stop_pulse()
+
+        if wav_path is None:
+            logger.error("WAV preparation failed, skipping playback")
+            await self._led_fade(self._current_led_brightness, 0.0)
+            self.state = "RESTING"
+            return
+
         await self._led_fade(self._current_led_brightness, 1.0)
 
-        # Play TTS (LED stays at max)
+        # Step 3: Play immediately (LED stays at max)
         try:
-            await self.tts_client.speak_to_file(self.tts_text)
+            await asyncio.to_thread(self.tts_client.play_wav_sync, wav_path)
         except Exception as e:
-            logger.error(f"Error in TTS: {e}")
+            logger.error(f"Error in TTS playback: {e}")
 
-        # Fade down after playback
+        # Step 4: Fade down after playback
         await self._led_fade(1.0, 0.0)
+
+        # Step 5: Cleanup WAV file
+        self.tts_client.cleanup_wav(wav_path)
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])
