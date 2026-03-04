@@ -20,14 +20,26 @@ LED_STEPS   = 40
 LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
 SSH_PASS = getpass.getpass("SSH Password: ")
-TMUX_SESSION = "bi_main"
-SCRIPT_CMD = f"cd {GIT_DIR} && git stash; git pull; uv run python main.py"
+TMUX_CONF = {
+    "run": {
+        "session": "bi_main",
+        "cmd": f"cd {GIT_DIR} && git stash; git pull; uv run python main.py",
+    },
+    "llm": {
+        "session": "bi_llm",
+        "cmd": f"cd {GIT_DIR} && git stash; git pull; chmod +x scripts/check_llm.py && ./scripts/check_llm.py",
+    },
+    "tts": {
+        "session": "bi_tts",
+        "cmd": f"cd {GIT_DIR} && git stash; git pull; chmod +x scripts/check_tts.py && ./scripts/check_tts.py",
+    },
+}
 SEND_SCRIPT = "/home/yuma/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/scripts/send_bi_input.py"
 
-PAGES = ["system", "led", "sound", "run"]
+PAGES = ["system", "led", "sound", "llm", "tts", "run"]
 jobs = {p: {n: {"status":"idle","msg":""} for n in range(1,NODE_COUNT+1)} for p in PAGES}
 job_locks = {p: {n: threading.Lock() for n in range(1,NODE_COUNT+1)} for p in PAGES}
-script_logs = {n: "" for n in range(1, NODE_COUNT+1)}
+script_logs = {p: {n: "" for n in range(1, NODE_COUNT+1)} for p in ["run", "llm", "tts"]}
 script_logs_lock = threading.Lock()
 
 def set_job(page, num, status, msg=""):
@@ -84,7 +96,7 @@ def _gitpull_worker(num):
     if not job_locks[page][num].acquire(blocking=False): return
     try:
         set_job(page, num, "running", "git pull...")
-        code, out, err = ssh_run(node_ip(num), f"cd {GIT_DIR} && git pull", timeout=30)
+        code, out, err = ssh_run(node_ip(num), f"cd {GIT_DIR} && git stash; git pull", timeout=30)
         if code == 0:
             msg = (out.split("\n")[-1])[:24] if out else "done"
             set_job(page, num, "ok", msg)
@@ -153,17 +165,16 @@ def _sound_worker(num):
     finally:
         job_locks[page][num].release()
 
-# -- Page 4 Run Scripts (tmux) --
-def _run_start_worker(num):
-    page = "run"
+# -- Generic tmux workers (run / llm / tts) --
+def _tmux_start(num, page):
+    conf = TMUX_CONF[page]
     if not job_locks[page][num].acquire(blocking=False): return
     try:
         set_job(page, num, "running", "starting...")
         ip = node_ip(num)
-        ssh_run(ip, f"tmux kill-session -t {TMUX_SESSION} 2>/dev/null", timeout=5)
+        ssh_run(ip, f"tmux kill-session -t {conf['session']} 2>/dev/null", timeout=5)
         time.sleep(0.3)
-        # remain-on-exit をつけて作成（コマンド終了後もセッション維持）
-        cmd = f"tmux new-session -d -s {TMUX_SESSION} \\; set remain-on-exit on \\; send-keys '{SCRIPT_CMD}' Enter"
+        cmd = f"tmux new-session -d -s {conf['session']} \\; set remain-on-exit on \\; send-keys '{conf['cmd']}' Enter"
         code, out, err = ssh_run(ip, cmd, timeout=30)
         if code == 0: set_job(page, num, "ok", "tmux started")
         else: set_job(page, num, "error", (err or out)[:24] or "start fail")
@@ -174,12 +185,12 @@ def _run_start_worker(num):
     finally:
         job_locks[page][num].release()
 
-def _run_stop_worker(num):
-    page = "run"
+def _tmux_stop(num, page):
+    conf = TMUX_CONF[page]
     if not job_locks[page][num].acquire(blocking=False): return
     try:
         set_job(page, num, "running", "stopping...")
-        ssh_run(node_ip(num), f"tmux kill-session -t {TMUX_SESSION} 2>/dev/null", timeout=10)
+        ssh_run(node_ip(num), f"tmux kill-session -t {conf['session']} 2>/dev/null", timeout=10)
         set_job(page, num, "idle", "stopped")
     except subprocess.TimeoutExpired:
         set_job(page, num, "error", "ssh timeout")
@@ -188,13 +199,13 @@ def _run_stop_worker(num):
     finally:
         job_locks[page][num].release()
 
-def _run_check_worker(num):
-    page = "run"
+def _tmux_check(num, page):
+    conf = TMUX_CONF[page]
     if not job_locks[page][num].acquire(blocking=False): return
     try:
         set_job(page, num, "running", "checking...")
         code, out, err = ssh_run(node_ip(num),
-            f"tmux has-session -t {TMUX_SESSION} 2>/dev/null && echo ALIVE || echo DEAD", timeout=10)
+            f"tmux has-session -t {conf['session']} 2>/dev/null && echo ALIVE || echo DEAD", timeout=10)
         if "ALIVE" in out: set_job(page, num, "ok", "running")
         else: set_job(page, num, "idle", "not running")
     except subprocess.TimeoutExpired:
@@ -204,22 +215,30 @@ def _run_check_worker(num):
     finally:
         job_locks[page][num].release()
 
-def _fetch_log(num):
+def _tmux_fetch_log(num, page):
+    conf = TMUX_CONF[page]
     try:
         code, out, err = ssh_run(node_ip(num),
-            f"tmux capture-pane -t {TMUX_SESSION} -p -S -100 2>/dev/null", timeout=10)
+            f"tmux capture-pane -t {conf['session']} -p -S -100 2>/dev/null", timeout=10)
         with script_logs_lock:
-            script_logs[num] = out if code == 0 else f"(no session)\n{err}"
+            script_logs[page][num] = out if code == 0 else f"(no session)\n{err}"
     except Exception as e:
         with script_logs_lock:
-            script_logs[num] = f"(error: {e})"
+            script_logs[page][num] = f"(error: {e})"
 
 WORKERS = {
     "ping": _ping_worker, "inet": _internet_worker,
     "gitpull": _gitpull_worker, "reboot": _reboot_worker,
     "led": _led_worker, "sound": _sound_worker,
-    "run_start": _run_start_worker, "run_stop": _run_stop_worker,
-    "run_check": _run_check_worker,
+    "run_start": lambda n: _tmux_start(n, "run"),
+    "run_stop": lambda n: _tmux_stop(n, "run"),
+    "run_check": lambda n: _tmux_check(n, "run"),
+    "llm_start": lambda n: _tmux_start(n, "llm"),
+    "llm_stop": lambda n: _tmux_stop(n, "llm"),
+    "llm_check": lambda n: _tmux_check(n, "llm"),
+    "tts_start": lambda n: _tmux_start(n, "tts"),
+    "tts_stop": lambda n: _tmux_stop(n, "tts"),
+    "tts_check": lambda n: _tmux_check(n, "tts"),
 }
 def run_worker(action, num):
     fn = WORKERS.get(action)
@@ -246,25 +265,28 @@ def api_reset():
         if not is_running(page, n): set_job(page, n, "idle", "")
     return jsonify({"ok": True})
 
-@app.route("/api/script_log/<int:num>")
-def api_script_log(num):
-    threading.Thread(target=_fetch_log, args=(num,), daemon=True).start()
+@app.route("/api/script_log/<page>/<int:num>")
+def api_script_log(page, num):
+    if page not in TMUX_CONF: return jsonify({"num": num, "log": ""})
+    threading.Thread(target=_tmux_fetch_log, args=(num, page), daemon=True).start()
     time.sleep(0.1)
     with script_logs_lock:
-        return jsonify({"num": num, "log": script_logs.get(num, "")})
+        return jsonify({"num": num, "log": script_logs[page].get(num, "")})
 
 @app.route("/api/script_logs", methods=["POST"])
 def api_script_logs():
     d = request.json
     nums = d.get("nums", [])
+    page = d.get("page", "run")
+    if page not in TMUX_CONF: return jsonify({})
     threads = []
     for num in nums:
-        t = threading.Thread(target=_fetch_log, args=(int(num),), daemon=True)
+        t = threading.Thread(target=_tmux_fetch_log, args=(int(num), page), daemon=True)
         t.start(); threads.append(t)
     for t in threads: t.join(timeout=12)
     result = {}
     with script_logs_lock:
-        for num in nums: result[int(num)] = script_logs.get(int(num), "")
+        for num in nums: result[int(num)] = script_logs[page].get(int(num), "")
     return jsonify(result)
 
 @app.route("/api/send_test", methods=["POST"])
@@ -325,7 +347,7 @@ nav{display:flex;}
 .node.selected .nn{color:var(--accent);}
 """
 
-NAV_TABS = [("/","system","01 SYSTEM"),("/led","led","02 LED"),("/sound","sound","03 SOUND"),("/run","run","04 RUN")]
+NAV_TABS = [("/","system","01 SYSTEM"),("/led","led","02 LED"),("/sound","sound","03 SOUND"),("/llm","llm","04 LLM"),("/tts","tts","05 TTS"),("/run","run","99 RUN")]
 def make_nav(current):
     return "".join(f'<a href="{u}" class="nt{" on" if p==current else ""}">{l}</a>' for u,p,l in NAV_TABS)
 
@@ -442,22 +464,40 @@ build();poll();setInterval(poll,1500);
 
 
 # ── Page 4: RUN SCRIPTS ──────────────────────────────────────────────────────
-def make_run_html():
-    nav = ""
-    tabs = [("/","system","01 SYSTEM"),("/led","led","02 LED"),("/sound","sound","03 SOUND"),("/run","run","04 RUN")]
-    for url, pid, label in tabs:
-        active = ' class="nt on"' if pid == "run" else ' class="nt"'
-        nav += f'<a href="{url}"{active}>{label}</a>'
-
+def make_tmux_html(page_id, title, subtitle, action_prefix, show_test=False):
+    nav = make_nav(page_id)
+    test_panel = ""
+    test_js = ""
+    if show_test:
+        test_panel = f"""
+<div class="test-panel">
+  <label>SEND TEST:</label><label>NODE</label>
+  <input type="number" id="testNum" value="1" min="1" max="100">
+  <input type="text" id="testText" placeholder="テキストを入力... (例: 森林の奥深くには)" value="森林の奥深くには">
+  <button class="btn b2" onclick="sendTest()">SEND</button>
+</div>
+<div class="test-result" id="testResult"></div>"""
+        test_js = """
+async function sendTest(){{
+  const num=document.getElementById('testNum').value;
+  const text=document.getElementById('testText').value;
+  const el=document.getElementById('testResult');
+  el.className='test-result';el.textContent=`sending to NODE ${{num}} ...`;
+  try{{
+    const r=await fetch('/api/send_test',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{num,text}})}});
+    const d=await r.json();
+    if(d.ok){{el.className='test-result ok';el.textContent=`NODE ${{num}}: OK ${{d.stdout}}`;}}
+    else{{el.className='test-result err';el.textContent=`NODE ${{num}}: ERR ${{d.stderr||d.stdout}}`;}}
+  }}catch(e){{el.className='test-result err';el.textContent='Error: '+e;}}
+}}"""
     return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>BI MONITOR — RUN SCRIPTS</title>
+<title>BI MONITOR — {title}</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500;700&display=swap" rel="stylesheet">
 <style>
 {SHARED_CSS}
-/* == run page extras == */
 .test-panel{{
   margin:0 20px 10px;padding:12px 16px;border:1px solid var(--border);background:var(--panel);
   display:flex;gap:10px;align-items:center;flex-wrap:wrap;
@@ -476,30 +516,23 @@ def make_run_html():
   font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--dim);
   margin:0 20px 6px;padding:4px 10px;
 }}
-.test-result.ok{{color:var(--ok);}}
-.test-result.err{{color:var(--ng);}}
+.test-result.ok{{color:var(--ok);}}.test-result.err{{color:var(--ng);}}
 .log-toggle{{
   font-family:'Share Tech Mono',monospace;font-size:.58rem;padding:3px 8px;
-  border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;
-  transition:all .12s;
+  border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;transition:all .12s;
 }}
 .log-toggle:hover{{border-color:var(--a2);color:var(--a2);}}
 .log-toggle.active{{border-color:var(--a2);color:var(--a2);}}
-.log-area{{
-  display:none;margin:0;padding:0;border-top:1px solid var(--border);
-}}
+.log-area{{display:none;margin:0;padding:0;border-top:1px solid var(--border);}}
 .log-area.open{{display:block;}}
-.log-inner{{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1px;background:var(--border);
-}}
+.log-inner{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1px;background:var(--border);}}
 .log-node{{background:#0a0a0f;padding:6px 8px;min-height:80px;}}
 .log-node-hd{{
   font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--accent);
   margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;
 }}
 .log-node-hd .refresh-btn{{
-  font-size:.5rem;padding:1px 5px;border:1px solid var(--border);background:transparent;
-  color:var(--dim);cursor:pointer;
+  font-size:.5rem;padding:1px 5px;border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;
 }}
 .log-node-hd .refresh-btn:hover{{border-color:var(--a2);color:var(--a2);}}
 .log-text{{
@@ -510,15 +543,13 @@ def make_run_html():
 </head>
 <body>
 <header>
-  <div><h1>&#9672; BI MONITOR</h1><div class="sub">スクリプト実行 (tmux) — SSH切断後も継続</div></div>
+  <div><h1>&#9672; BI MONITOR</h1><div class="sub">{subtitle}</div></div>
   <nav>{nav}</nav>
 </header>
-
-<!-- toolbar -->
 <div class="toolbar">
-  <button class="btn bp" onclick="runNums('run_start',getSelNums())">&#9654; START</button>
-  <button class="btn bd" onclick="if(confirm('選択ノードのスクリプトを停止しますか?'))runNums('run_stop',getSelNums())">&#9632; STOP</button>
-  <button class="btn b2" onclick="runNums('run_check',getSelNums())">&#8635; CHECK</button>
+  <button class="btn bp" onclick="runNums('{action_prefix}_start',getSelNums())">&#9654; START</button>
+  <button class="btn bd" onclick="if(confirm('選択ノードを停止しますか?'))runNums('{action_prefix}_stop',getSelNums())">&#9632; STOP</button>
+  <button class="btn b2" onclick="runNums('{action_prefix}_check',getSelNums())">&#8635; CHECK</button>
   <button class="btn" onclick="resetNums(getSelNums())">RESET</button>
   <button class="btn b2" onclick="selAll()">SELECT ALL</button>
   <button class="btn" onclick="clearSel()">CLEAR</button>
@@ -526,47 +557,26 @@ def make_run_html():
   <div style="flex:1"></div>
   <span class="btn" id="summary" style="cursor:default;border-color:transparent">—</span>
 </div>
-
-<!-- test command panel -->
-<div class="test-panel">
-  <label>SEND TEST:</label>
-  <label>NODE</label>
-  <input type="number" id="testNum" value="1" min="1" max="100">
-  <input type="text" id="testText" placeholder="テキストを入力... (例: 森林の奥深くには)" value="森林の奥深くには">
-  <button class="btn b2" onclick="sendTest()">SEND</button>
-</div>
-<div class="test-result" id="testResult"></div>
-
-<!-- clusters -->
+{test_panel}
 <div class="clusters" id="clusters"></div>
 <div class="footer" id="footer"></div>
-
 <script>
-const PAGE='run';
+const PAGE='{page_id}';
+const ACT='{action_prefix}';
 const CL=Array.from({{length:10}},(_,i)=>({{s:i*10+1,e:i*10+10,l:`CLUSTER ${{String(i+1).padStart(2,'0')}} \u2014 NODE ${{i*10+1}}\u2013${{i*10+10}}`}}));
 let J={{}};
-
+let sel=new Set();
+function toggleSel(n){{const nd=document.getElementById('nd'+n);if(sel.has(n)){{sel.delete(n);nd.classList.remove('selected');}}else{{sel.add(n);nd.classList.add('selected');}}updSelBtn();}}
+function selCluster(ci){{clNums(ci).forEach(n=>{{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}});updSelBtn();}}
+function clearSel(){{sel.forEach(n=>{{const nd=document.getElementById('nd'+n);if(nd)nd.classList.remove('selected');}});sel.clear();updSelBtn();}}
+function selAll(){{for(let n=1;n<=100;n++){{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}};updSelBtn();}}
+function getSelNums(){{return sel.size>0?Array.from(sel):allNums();}}
+function updSelBtn(){{const el=document.getElementById('selCount');if(el)el.textContent=sel.size>0?sel.size+' selected':'all';}}
 function allNums(){{return Array.from({{length:100}},(_,i)=>i+1);}}
 function clNums(ci){{const cl=CL[ci];return Array.from({{length:10}},(_,i)=>cl.s+i);}}
-
 async function runNums(action,nums){{await fetch('/api/run',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action,page:PAGE,nums}})}});}}
 async function resetNums(nums){{await fetch('/api/reset',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{page:PAGE,nums}})}});await poll();}}
-
-// === テストコマンド ===
-async function sendTest(){{
-  const num=document.getElementById('testNum').value;
-  const text=document.getElementById('testText').value;
-  const el=document.getElementById('testResult');
-  el.className='test-result';el.textContent=`sending to NODE ${{num}} ...`;
-  try{{
-    const r=await fetch('/api/send_test',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{num,text}})}});
-    const d=await r.json();
-    if(d.ok){{el.className='test-result ok';el.textContent=`NODE ${{num}}: OK ${{d.stdout}}`;}}
-    else{{el.className='test-result err';el.textContent=`NODE ${{num}}: ERR ${{d.stderr||d.stdout}}`;}}
-  }}catch(e){{el.className='test-result err';el.textContent='Error: '+e;}}
-}}
-
-// === ビルド ===
+{test_js}
 function build(){{
   const c=document.getElementById('clusters');c.innerHTML='';
   CL.forEach((cl,ci)=>{{
@@ -576,10 +586,11 @@ function build(){{
         <div class="ct">${{cl.l}}</div>
         <div class="cs" id="cs${{ci}}">—</div>
         <div class="ca">
-          <button class="cb" onclick="runNums('run_start',clNums(${{ci}}))">START</button>
-          <button class="cb" onclick="runNums('run_stop',clNums(${{ci}}))">STOP</button>
-          <button class="cb c2" onclick="runNums('run_check',clNums(${{ci}}))">CHECK</button>
-          <button class="cb c2" onclick="resetNums(clNums(${{ci}}))">RST</button><button class="cb" onclick="selCluster(${{ci}})">SEL</button>
+          <button class="cb" onclick="runNums(ACT+'_start',clNums(${{ci}}))">START</button>
+          <button class="cb" onclick="runNums(ACT+'_stop',clNums(${{ci}}))">STOP</button>
+          <button class="cb c2" onclick="runNums(ACT+'_check',clNums(${{ci}}))">CHECK</button>
+          <button class="cb c2" onclick="resetNums(clNums(${{ci}}))">RST</button>
+          <button class="cb" onclick="selCluster(${{ci}})">SEL</button>
           <button class="log-toggle" id="lt${{ci}}" onclick="toggleLog(${{ci}})">LOG ▼</button>
         </div>
       </div>
@@ -588,7 +599,6 @@ function build(){{
         <div class="log-inner" id="li${{ci}}"></div>
       </div>`;
     c.appendChild(d);
-    // ノードグリッド
     const g=document.getElementById('cg'+ci);
     for(let i=0;i<10;i++){{
       const n=cl.s+i;
@@ -599,7 +609,6 @@ function build(){{
       nd.innerHTML=`<div class="nn">NODE ${{n}}</div><div class="dot"></div><div class="nl" id="nl${{n}}">—</div>`;
       g.appendChild(nd);
     }}
-    // ログパネル（折りたたみ）
     const li=document.getElementById('li'+ci);
     for(let i=0;i<10;i++){{
       const n=cl.s+i;
@@ -609,8 +618,6 @@ function build(){{
     }}
   }});
 }}
-
-// === ログ折りたたみ ===
 function toggleLog(ci){{
   const la=document.getElementById('la'+ci);
   const lt=document.getElementById('lt'+ci);
@@ -619,11 +626,10 @@ function toggleLog(ci){{
   lt.classList.toggle('active',isOpen);
   if(isOpen)fetchClusterLogs(ci);
 }}
-
 async function fetchClusterLogs(ci){{
   const nums=clNums(ci);
   try{{
-    const r=await fetch('/api/script_logs',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{nums}})}});
+    const r=await fetch('/api/script_logs',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{nums,page:PAGE}})}});
     const d=await r.json();
     for(const[n,log] of Object.entries(d)){{
       const el=document.getElementById('logtext'+n);
@@ -631,20 +637,14 @@ async function fetchClusterLogs(ci){{
     }}
   }}catch(e){{}}
 }}
-
 async function refreshLog(n){{
   try{{
-    const r=await fetch('/api/script_log/'+n);
+    const r=await fetch('/api/script_log/'+PAGE+'/'+n);
     const d=await r.json();
     const el=document.getElementById('logtext'+n);
     if(el){{el.textContent=d.log||'(empty)';el.scrollTop=el.scrollHeight;}}
   }}catch(e){{}}
 }}
-
-// === ノードクリック: check状態 ===
-async function nodeClick(n){{toggleSel(n);}}
-
-// === ステータス更新 ===
 function applyStatus(d){{
   J=d;let ok=0,ng=0,run=0,idle=0;
   for(let n=1;n<=100;n++){{
@@ -664,27 +664,13 @@ function applyStatus(d){{
   }});
   document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();
 }}
-
-let sel=new Set();
-function toggleSel(n){{const nd=document.getElementById('nd'+n);if(sel.has(n)){{sel.delete(n);nd.classList.remove('selected');}}else{{sel.add(n);nd.classList.add('selected');}}updSelBtn();}}
-function selCluster(ci){{clNums(ci).forEach(n=>{{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}});updSelBtn();}}
-function clearSel(){{sel.forEach(n=>{{const nd=document.getElementById('nd'+n);if(nd)nd.classList.remove('selected');}});sel.clear();updSelBtn();}}
-function selAll(){{for(let n=1;n<=100;n++){{sel.add(n);const nd=document.getElementById('nd'+n);if(nd)nd.classList.add('selected');}};updSelBtn();}}
-function getSelNums(){{return sel.size>0?Array.from(sel):allNums();}}
-function updSelBtn(){{const el=document.getElementById('selCount');if(el)el.textContent=sel.size>0?sel.size+' selected':'all';}}
-
 async function poll(){{try{{const r=await fetch('/api/status/'+PAGE);applyStatus(await r.json())}}catch(e){{}}}}
-
-// === 開いているログパネルを自動更新 ===
 async function autoRefreshLogs(){{
   for(let ci=0;ci<10;ci++){{
     const la=document.getElementById('la'+ci);
-    if(la&&la.classList.contains('open')){{
-      await fetchClusterLogs(ci);
-    }}
+    if(la&&la.classList.contains('open'))await fetchClusterLogs(ci);
   }}
 }}
-
 build();poll();
 setInterval(poll,2000);
 setInterval(autoRefreshLogs,5000);
@@ -733,8 +719,12 @@ def page_system(): return render_template_string(make_system_html())
 def page_led(): return render_template_string(PAGES_HTML["led"])
 @app.route("/sound")
 def page_sound(): return render_template_string(PAGES_HTML["sound"])
+@app.route("/llm")
+def page_llm(): return render_template_string(make_tmux_html("llm", "LLM CHECK", "LLMロード検証 — check_llm.py", "llm"))
+@app.route("/tts")
+def page_tts(): return render_template_string(make_tmux_html("tts", "TTS CHECK", "TTSロード検証 — check_tts.py", "tts"))
 @app.route("/run")
-def page_run(): return render_template_string(make_run_html())
+def page_run(): return render_template_string(make_tmux_html("run", "RUN SCRIPTS", "スクリプト実行 (tmux) — SSH切断後も継続", "run", show_test=True))
 
 if __name__ == "__main__":
     print("=" * 50)
@@ -742,6 +732,8 @@ if __name__ == "__main__":
     print("  http://localhost:5050        -> 01 SYSTEM")
     print("  http://localhost:5050/led    -> 02 LED")
     print("  http://localhost:5050/sound  -> 03 SOUND")
-    print("  http://localhost:5050/run    -> 04 RUN SCRIPTS")
+    print("  http://localhost:5050/llm    -> 04 LLM")
+    print("  http://localhost:5050/tts    -> 05 TTS")
+    print("  http://localhost:5050/run    -> 99 RUN SCRIPTS")
     print("=" * 50)
     app.run(host="0.0.0.0", port=5050, debug=False, threaded=True)
