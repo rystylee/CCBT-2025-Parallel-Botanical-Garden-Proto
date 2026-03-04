@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import argostranslate.translate
@@ -49,7 +50,7 @@ class StackFlowLLMClient:
         self, query: str, lang: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0
     ) -> str:
         logger.info(f"query: {query}")
-        translated_query = await self._translate(query, lang)
+        translated_query = await asyncio.to_thread(self._translate_sync, query, lang)
         logger.info(f"translated_query: {translated_query}")
         prompt = self.instruction_prompt + translated_query
         logger.info(f"prompt: {prompt}")
@@ -57,6 +58,13 @@ class StackFlowLLMClient:
             logger.info(f"soft_prefix_b64: {soft_prefix_b64[:30]}... len: {soft_prefix_len}")
 
         send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
+        output = await asyncio.to_thread(self._inference_sync, send_data)
+
+        output = self._postprocess(output)
+        return output
+
+    def _inference_sync(self, send_data: dict) -> str:
+        """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
         send_json(self.sock, send_data)
 
         output = ""
@@ -76,7 +84,6 @@ class StackFlowLLMClient:
             if finish:
                 break
 
-        output = self._postprocess(output)
         return output
 
     def _init(self) -> str:
@@ -135,7 +142,8 @@ class StackFlowLLMClient:
             "data": data_obj,
         }
 
-    async def _translate(self, query: str, lang: str) -> str:
+    def _translate_sync(self, query: str, lang: str) -> str:
+        """Synchronous translation (called via asyncio.to_thread)."""
         try:
             result = argostranslate.translate.translate(query, from_code=lang, to_code=self.lang)
             return result
