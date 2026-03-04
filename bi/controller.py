@@ -102,9 +102,9 @@ class BIController:
                 soft_prefix_b64=sp_b64,
                 soft_prefix_len=P,
             )
-            self.generated_text = generated_text
-            self.tts_text = concatenated_text + generated_text
-            logger.info(f"Generated text: {generated_text}")
+            self.generated_text = generated_text.strip()
+            self.tts_text = concatenated_text + generated_text.strip()
+            logger.info(f"Generated text: {generated_text.strip()}")
 
             # Keep pulse running — it will continue during WAV preparation in OUTPUT phase
             self.state = "OUTPUT"
@@ -219,7 +219,7 @@ class BIController:
         data = BIInputData(
             soft_prefix_b64=soft_prefix_b64,
             relay_count=next_relay_count,
-            text=text.strip() 
+            text=text.strip()
         )
         self.input_buffer.append(data)
         logger.info(
