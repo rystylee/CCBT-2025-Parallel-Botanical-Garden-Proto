@@ -24,10 +24,16 @@ LED_STEPS   = 40
 LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
 SSH_PASS = getpass.getpass("SSH Password: ")
+
+# RUN ログファイルパス（各ノード上）
+RUN_LOG_FILE = "/tmp/bi_run.log"
+
 TMUX_CONF = {
     "run": {
         "session": "bi_main",
-        "cmd": f"cd {GIT_DIR} && git stash; git pull; uv run python main.py",
+        # 2>&1 | tee でファイルにも書き出す → tmux スクロールバック依存を回避
+        # tee -a で追記モード（再起動時も続きから読める）
+        "cmd": f"cd {GIT_DIR} && git stash; git pull; uv run python main.py 2>&1 | tee -a {RUN_LOG_FILE}",
     },
     "llm": {
         "session": "bi_llm",
@@ -126,15 +132,16 @@ def _dispatch_scrape_event(num: int, ts: str, level: str, msg: str):
 
 
 def _scrape_node_run_log(num: int):
-    """1ノードの tmux ログを取得して新行だけ書き込む"""
+    """1ノードの RUN ログファイルを読んで新行だけ bi_logger に書き込む。
+    tee で書かれた /tmp/bi_run.log を tail で読む。
+    ファイル経由なので tmux スクロールバック問題・ANSI コード問題を回避できる。
+    loguru は TTY でないと判断して ANSI カラーコードを出力しないため _strip_ansi 不要。
+    """
     try:
-        # -J : 折り返された行を結合（tmux pane 幅による行分断を防ぐ）
-        # -S -600 : 直近600行を対象
-        # サーバー側で ANSI 除去（Python 側でも二重に除去）
+        # 直近800行を取得（ファイルなので行数制限なし・確実に残る）
         code, out, _ = ssh_run(
             node_ip(num),
-            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -J -S -600 2>/dev/null"
-            " | cat",   # sed の \x1b 解釈が環境依存なので Python 側のみで除去
+            f"tail -n 800 {RUN_LOG_FILE} 2>/dev/null",
             timeout=12,
         )
         if code != 0 or not out.strip():
@@ -143,7 +150,7 @@ def _scrape_node_run_log(num: int):
         with _run_scrape_lock:
             seen = _run_scrape_seen[num]
             for line in out.splitlines():
-                parsed = _parse_loguru(line)   # 内部で _strip_ansi を呼ぶ
+                parsed = _parse_loguru(line)
                 if not parsed:
                     continue
                 ts, level, msg = parsed
@@ -152,8 +159,8 @@ def _scrape_node_run_log(num: int):
                     continue
                 seen.add(fp)
                 new_events.append((ts, level, msg))
-            if len(seen) > 3000:
-                _run_scrape_seen[num] = set(list(seen)[-1500:])
+            if len(seen) > 5000:
+                _run_scrape_seen[num] = set(list(seen)[-2500:])
         for ts, level, msg in new_events:
             _dispatch_scrape_event(num, ts, level, msg)
     except Exception:
@@ -517,22 +524,21 @@ def api_send_test():
 @app.route("/api/debug_scrape/<int:num>")
 def api_debug_scrape(num):
     """
-    デバッグ用: ノードの tmux 生出力・パース結果・dispatch マッチ結果を返す。
-    ブラウザで /api/debug_scrape/51 のようにアクセスして確認する。
+    デバッグ用: ノードの RUN ログファイルの内容・パース結果を返す。
+    /api/debug_scrape/41 のようにアクセスして確認する。
     """
     result = {"num": num, "raw_lines": [], "parsed": [], "unmatched": [], "error": None}
     try:
         code, out, err = ssh_run(
             node_ip(num),
-            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -J -S -100 2>/dev/null | cat",
+            f"tail -n 100 {RUN_LOG_FILE} 2>/dev/null",
             timeout=12,
         )
         result["ssh_code"] = code
         result["ssh_err"]  = err[:200] if err else ""
         raw_lines = out.splitlines() if out else []
         result["raw_line_count"] = len(raw_lines)
-        # 最後の30行を ANSI除去して表示
-        result["raw_lines"] = [_strip_ansi(l) for l in raw_lines[-30:]]
+        result["raw_lines"] = raw_lines[-30:]   # ANSIなしなのでそのまま表示
 
         for line in raw_lines:
             p = _parse_loguru(line)
@@ -540,7 +546,6 @@ def api_debug_scrape(num):
                 continue
             ts, level, msg = p
             entry = {"ts": ts, "level": level, "msg": msg[:120]}
-            # どのパターンにマッチするか
             matched = None
             if _re.search(r"Added input:", msg):               matched = "SIGNAL_IN"
             elif _re.search(r"Generated text:", msg):          matched = "GENERATED"
