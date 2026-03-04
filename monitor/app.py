@@ -128,12 +128,13 @@ def _dispatch_scrape_event(num: int, ts: str, level: str, msg: str):
 def _scrape_node_run_log(num: int):
     """1ノードの tmux ログを取得して新行だけ書き込む"""
     try:
-        # tmux capture-pane の出力をサーバー側で ANSI 除去してから受け取る
-        # -S -600 で直近600行を対象にする
+        # -J : 折り返された行を結合（tmux pane 幅による行分断を防ぐ）
+        # -S -600 : 直近600行を対象
+        # サーバー側で ANSI 除去（Python 側でも二重に除去）
         code, out, _ = ssh_run(
             node_ip(num),
-            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -S -600 2>/dev/null"
-            r" | sed 's/\x1b\[[0-9;]*[mGKHF]//g; s/\x1b(B//g'",
+            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -J -S -600 2>/dev/null"
+            " | cat",   # sed の \x1b 解釈が環境依存なので Python 側のみで除去
             timeout=12,
         )
         if code != 0 or not out.strip():
@@ -142,16 +143,15 @@ def _scrape_node_run_log(num: int):
         with _run_scrape_lock:
             seen = _run_scrape_seen[num]
             for line in out.splitlines():
-                parsed = _parse_loguru(line)
+                parsed = _parse_loguru(line)   # 内部で _strip_ansi を呼ぶ
                 if not parsed:
                     continue
                 ts, level, msg = parsed
-                fp = (ts[:19], msg[:80])   # 秒精度タイムスタンプ + メッセージ頭80字
+                fp = (ts[:19], msg[:80])
                 if fp in seen:
                     continue
                 seen.add(fp)
                 new_events.append((ts, level, msg))
-            # seen セットが巨大化しないように間引く
             if len(seen) > 3000:
                 _run_scrape_seen[num] = set(list(seen)[-1500:])
         for ts, level, msg in new_events:
@@ -512,6 +512,55 @@ def api_send_test():
     except Exception as e:
         bi_logger.log_run_test_input(num, text, False, "", str(e))
         return jsonify({"ok": False, "stdout": "", "stderr": str(e)})
+
+
+@app.route("/api/debug_scrape/<int:num>")
+def api_debug_scrape(num):
+    """
+    デバッグ用: ノードの tmux 生出力・パース結果・dispatch マッチ結果を返す。
+    ブラウザで /api/debug_scrape/51 のようにアクセスして確認する。
+    """
+    result = {"num": num, "raw_lines": [], "parsed": [], "unmatched": [], "error": None}
+    try:
+        code, out, err = ssh_run(
+            node_ip(num),
+            f"tmux capture-pane -t {TMUX_CONF['run']['session']} -p -J -S -100 2>/dev/null | cat",
+            timeout=12,
+        )
+        result["ssh_code"] = code
+        result["ssh_err"]  = err[:200] if err else ""
+        raw_lines = out.splitlines() if out else []
+        result["raw_line_count"] = len(raw_lines)
+        # 最後の30行を ANSI除去して表示
+        result["raw_lines"] = [_strip_ansi(l) for l in raw_lines[-30:]]
+
+        for line in raw_lines:
+            p = _parse_loguru(line)
+            if not p:
+                continue
+            ts, level, msg = p
+            entry = {"ts": ts, "level": level, "msg": msg[:120]}
+            # どのパターンにマッチするか
+            matched = None
+            if _re.search(r"Added input:", msg):               matched = "SIGNAL_IN"
+            elif _re.search(r"Generated text:", msg):          matched = "GENERATED"
+            elif "Preparing WAV file" in msg:                  matched = "TTS_PREP"
+            elif "WAV preparation failed" in msg:              matched = "TTS_FAIL"
+            elif _re.search(r"Sent to Mixer PC:", msg):        matched = "SIGNAL_OUT"
+            elif _re.search(r"Error in generation:", msg):     matched = "ERR_GEN"
+            elif _re.search(r"Error in TTS", msg):             matched = "ERR_TTS"
+            elif _re.search(r"Error in BI cycle:", msg):       matched = "ERR_CYCLE"
+            elif "Auto-starting BI cycle" in msg:              matched = "STARTUP"
+            elif "Starting BI system" in msg:                  matched = "STARTUP"
+            elif _re.search(r"Rejected data", msg):            matched = "RELAY_REJ"
+            entry["matched"] = matched
+            if matched:
+                result["parsed"].append(entry)
+            else:
+                result["unmatched"].append(entry)
+    except Exception as e:
+        result["error"] = str(e)
+    return jsonify(result)
 
 
 # ── ログファイル閲覧 API ──────────────────────────────────────────────
