@@ -421,7 +421,7 @@ function build(){{
 async function cAct(ci,a){{
   if(a==='reset')await resetNums(clNums(ci));
   else if(a==='reboot'){{if(confirm('REBOOT CLUSTER '+(ci+1)+'?'))await runNums('reboot',clNums(ci));}}
-  else if(a==='gitpull'){if(confirm('GIT PULL CLUSTER '+(ci+1)+'?'))await runNums('gitpull',clNums(ci));}
+  else if(a==='gitpull'){{if(confirm('GIT PULL CLUSTER '+(ci+1)+'?'))await runNums('gitpull',clNums(ci));}}
   else await runNums(a,clNums(ci));
 }}
 async function nodeClick(n){{
