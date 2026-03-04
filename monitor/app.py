@@ -18,7 +18,7 @@ SSH_USER    = "root"
 GIT_DIR     = "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto"
 SOUND_CMD   = "tinyplay -D0 -d1 /usr/local/m5stack/logo.wav"
 LED_SERVER_SESSION = "bi_led_srv"
-LED_SERVER_CMD = f"bash -l -c 'cd {GIT_DIR} && uv run python pca9685_osc_led_server.py --port {OSC_PORT}'"
+LED_SERVER_CMD = f"cd {GIT_DIR} && uv run python pca9685_osc_led_server.py --port {OSC_PORT}"
 LED_STEPS   = 40
 LED_UP_SEC  = 2.0
 LED_DN_SEC  = 2.0
@@ -159,8 +159,10 @@ def _led_worker(num):
             f"tmux has-session -t {LED_SERVER_SESSION} 2>/dev/null && echo ALIVE || echo DEAD", timeout=5)
         if "DEAD" in out:
             ssh_run(ip,
-                f"tmux new-session -d -s {LED_SERVER_SESSION} '{LED_SERVER_CMD}'", timeout=10)
-            time.sleep(2)  # サーバー起動待ち
+                f"tmux new-session -d -s {LED_SERVER_SESSION}", timeout=10)
+            ssh_run(ip,
+                f"tmux send-keys -t {LED_SERVER_SESSION} 'cd {GIT_DIR} && uv run python pca9685_osc_led_server.py --port {OSC_PORT}' Enter", timeout=10)
+            time.sleep(2)
 
         set_job(page, num, "running", "fade up...")
         client = udp_client.SimpleUDPClient(ip, OSC_PORT)
