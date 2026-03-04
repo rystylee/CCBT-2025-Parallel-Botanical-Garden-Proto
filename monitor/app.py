@@ -8,6 +8,7 @@ BI MONITOR - 4 pages
 from flask import Flask, jsonify, request, render_template_string
 from pythonosc import udp_client
 import threading, time, subprocess, getpass
+import os
 
 app = Flask(__name__)
 NODE_PREFIX = "10.0.0"
@@ -61,8 +62,21 @@ def ping_ip(ip):
         return False, "offline"
     except:
         return False, "error"
+
+SSH_CONTROL_DIR = "/tmp/bi_ssh_ctrl"
+os.makedirs(SSH_CONTROL_DIR, exist_ok=True)
+
 def ssh_run(ip, cmd, timeout=15):
-    r = subprocess.run(["sshpass","-p",SSH_PASS,"ssh","-o","StrictHostKeyChecking=no","-o","ConnectTimeout=5",f"{SSH_USER}@{ip}",cmd], capture_output=True, text=True, timeout=timeout)
+    ctrl = f"{SSH_CONTROL_DIR}/%r@%h:%p"
+    r = subprocess.run([
+        "sshpass", "-p", SSH_PASS, "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=5",
+        "-o", f"ControlPath={ctrl}",
+        "-o", "ControlMaster=auto",
+        "-o", "ControlPersist=60",
+        f"{SSH_USER}@{ip}", cmd
+    ], capture_output=True, text=True, timeout=timeout)
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 
 # -- Page 1 SYSTEM workers --
