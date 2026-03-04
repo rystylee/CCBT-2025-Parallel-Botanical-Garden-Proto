@@ -152,8 +152,28 @@ class StackFlowLLMClient:
             return query
 
     def _postprocess(self, text: str) -> str:
+        from api.utils import load_ng_words
+
         if ":" in text:
             idx = text.find(":")
-            return text[idx + 1 :]
-        else:
-            return text
+            text = text[idx + 1:]
+
+        preamble_keywords = load_ng_words()
+        lines = text.splitlines()
+        cleaned_lines = []
+        preamble_done = False
+        for line in lines:
+            stripped = line.strip()
+            if not preamble_done:
+                if stripped == "":
+                    continue
+                is_preamble = any(kw in stripped for kw in preamble_keywords)
+                if is_preamble:
+                    continue
+                else:
+                    preamble_done = True
+                    cleaned_lines.append(line)
+            else:
+                cleaned_lines.append(line)
+
+        return "\n".join(cleaned_lines).strip()
