@@ -293,18 +293,6 @@ class StackFlowTTSClient:
         """
         audio_config = self.config.get("audio", {})
 
-        debug_raw = audio_config.get("debug_raw_audio", False)
-        if debug_raw:
-            cmd = ["aplay", str(wav_path)]
-            logger.info(f"[RAW-AUDIO] Playback: {' '.join(cmd)}")
-            try:
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
-                logger.info(f"[RAW-AUDIO] Playback completed: {wav_path}")
-            except subprocess.CalledProcessError as e:
-                logger.error(f"[RAW-AUDIO] Playback failed: {e.stderr}")
-                raise RuntimeError(f"[RAW-AUDIO] Playback failed: {e.stderr}")
-            return
-
         temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
         enable_ffmpeg = audio_config.get("enable_ffmpeg_convert", True)
         enable_rumble = audio_config.get("enable_rumble_effect", False)
@@ -472,6 +460,18 @@ class StackFlowTTSClient:
             import subprocess
 
             audio_config = self.config.get("audio", {})
+            debug_raw = audio_config.get("debug_raw_audio", False)
+            if debug_raw:
+                cmd = ["aplay", str(wav_path)]
+                logger.info(f"[RAW-AUDIO] Playback: {' '.join(cmd)}")
+                try:
+                    subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    logger.info(f"[RAW-AUDIO] Playback completed: {wav_path}")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"[RAW-AUDIO] Playback failed: {e.stderr}")
+                    raise RuntimeError(f"[RAW-AUDIO] Playback failed: {e.stderr}")
+                return
+            
             playback_device = audio_config.get("playback_device", "")
 
             if playback_device:
