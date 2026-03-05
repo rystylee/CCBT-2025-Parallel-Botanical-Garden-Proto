@@ -888,6 +888,15 @@ def make_system_html():
   <button class="btn bd" onclick="resetNums(allNums())">RESET</button>
   <div class="sep"></div>
   <div class="mode-bar">
+    <span>AUTO:</span>
+    <button class="mbtn" id="autoBtn" onclick="toggleAuto()">OFF</button>
+    <select class="mbtn" id="autoSec" onchange="resetAutoTimer()" style="padding:3px 4px;font-size:.58rem;border-color:var(--border);background:transparent;">
+      <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option><option value="300">5m</option>
+    </select>
+    <span class="mbtn" id="autoCountdown" style="cursor:default;min-width:42px;text-align:center;border-color:transparent;color:var(--dim);font-size:.55rem">\u2014</span>
+  </div>
+  <div class="sep"></div>
+  <div class="mode-bar">
     <span>CLICK:</span>
     <button class="mbtn on" id="m_ping" onclick="setMode('ping')">PING</button>
     <button class="mbtn" id="m_inet" onclick="setMode('inet')">INET</button>
@@ -937,6 +946,31 @@ function applyStatus(d){{
   document.getElementById('footer').textContent='LAST: '+new Date().toLocaleTimeString();
 }}
 async function poll(){{try{{const r=await fetch('/api/status/'+PAGE);applyStatus(await r.json())}}catch(e){{}}}}
+let autoOn=false, autoTimer=null, countTimer=null, countdown=0;
+function toggleAuto(){{
+  autoOn=!autoOn;
+  const btn=document.getElementById('autoBtn');
+  btn.textContent=autoOn?'ON':'OFF';
+  btn.className=autoOn?'mbtn on':'mbtn';
+  if(autoOn){{ doPingAll(); startAutoTimer(); }}
+  else{{ clearInterval(autoTimer); clearInterval(countTimer); autoTimer=null; countTimer=null; document.getElementById('autoCountdown').textContent='\u2014'; }}
+}}
+function doPingAll(){{ runNums('ping',allNums()); }}
+function startAutoTimer(){{
+  clearInterval(autoTimer); clearInterval(countTimer);
+  const sec=parseInt(document.getElementById('autoSec').value)||60;
+  countdown=sec;
+  document.getElementById('autoCountdown').textContent=countdown+'s';
+  countTimer=setInterval(()=>{{
+    countdown--;
+    if(countdown<0) countdown=sec;
+    document.getElementById('autoCountdown').textContent=countdown+'s';
+  }},1000);
+  autoTimer=setInterval(()=>{{
+    if(autoOn){{ doPingAll(); countdown=sec; }}
+  }},sec*1000);
+}}
+function resetAutoTimer(){{ if(autoOn) startAutoTimer(); }}
 build();poll();setInterval(poll,1500);
 </script>
 {_make_log_viewer("system")}
