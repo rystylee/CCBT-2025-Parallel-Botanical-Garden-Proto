@@ -293,6 +293,18 @@ class StackFlowTTSClient:
         """
         audio_config = self.config.get("audio", {})
 
+        debug_raw = audio_config.get("debug_raw_audio", False)
+        if debug_raw:
+            cmd = ["aplay", str(wav_path)]
+            logger.info(f"[RAW-AUDIO] Playback: {' '.join(cmd)}")
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                logger.info(f"[RAW-AUDIO] Playback completed: {wav_path}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"[RAW-AUDIO] Playback failed: {e.stderr}")
+                raise RuntimeError(f"[RAW-AUDIO] Playback failed: {e.stderr}")
+            return
+
         temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
         enable_ffmpeg = audio_config.get("enable_ffmpeg_convert", True)
         enable_rumble = audio_config.get("enable_rumble_effect", False)
@@ -301,6 +313,22 @@ class StackFlowTTSClient:
         sample_format = audio_config.get("sample_format", "s16")
 
         os.makedirs(temp_wav_dir, exist_ok=True)
+
+        # --- Debug raw audio mode ---
+        debug_raw = audio_config.get("debug_raw_audio", False)
+        if debug_raw:
+            debug_dir = "/tmp/bi_debug"
+            os.makedirs(debug_dir, exist_ok=True)
+            timestamp = time.time()
+            raw_wav_path = os.path.join(debug_dir, f"tts_raw_{timestamp}.wav")
+            try:
+                logger.info(f"[RAW-AUDIO] Generating WAV (no FFmpeg): {text[:50]}...")
+                tts_generate_wav(text, self.model, raw_wav_path)
+                logger.info(f"[RAW-AUDIO] Saved: {raw_wav_path}")
+                return raw_wav_path
+            except Exception as e:
+                logger.error(f"[RAW-AUDIO] WAV generation failed: {e}")
+                return None
 
         timestamp = time.time()
         raw_wav_path = os.path.join(temp_wav_dir, f"tts_raw_{timestamp}.wav")
@@ -464,6 +492,9 @@ class StackFlowTTSClient:
 
     def cleanup_wav(self, wav_path: str) -> None:
         """Remove temporary WAV file."""
+        if self.config.get("audio", {}).get("debug_raw_audio", False):
+            logger.debug(f"[RAW-AUDIO] Keeping file: {wav_path}")
+            return
         if wav_path and os.path.exists(wav_path):
             try:
                 os.remove(wav_path)

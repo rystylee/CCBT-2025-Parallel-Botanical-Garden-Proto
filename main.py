@@ -19,6 +19,8 @@ def parse_args():
     parser.add_argument("--config_path", type=str, default="config/config.json")
     parser.add_argument("--device-id", type=int, default=None,
                         help="Device ID (e.g. 61). If omitted, auto-detected from network config")
+    parser.add_argument("--raw-audio", action="store_true",
+                        help="Debug mode: skip FFmpeg processing, save raw WAV, play with aplay")
     return parser.parse_args()
 
 
@@ -62,6 +64,10 @@ async def async_main():
 
     with open(opt.config_path, mode="r", encoding="utf-8") as f:
         config = json.load(f)
+
+    if opt.raw_audio:
+        config.setdefault("audio", {})["debug_raw_audio"] = True
+        logger.info("RAW AUDIO DEBUG MODE enabled: skipping FFmpeg, saving raw WAVs to /tmp/bi_debug/")
 
     # Device ID from CLI argument or /etc/ccbt-device-id
     device_id = resolve_device_id(opt.device_id)
