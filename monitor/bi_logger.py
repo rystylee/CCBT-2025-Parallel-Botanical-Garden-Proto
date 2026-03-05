@@ -159,3 +159,13 @@ def log_run_mixer_sent(num: int, text: str, ts: str = ""):
 def log_run_relay_rejected(num: int, detail: str, ts: str = ""):
     _write("run", False,
            f"{_node_tag(num)}  RELAY_REJ  {detail[:80].replace(chr(10),' ')}", ts=ts)
+
+def log_run_signal_out_summary(num: int, destinations: str, text: str, ts: str = ""):
+    """
+    送信先まとめ（GENERATED と同タイムスタンプで出力）。
+    destinations 例: "3 nodes, Mixer"
+    例: NODE 041  SIGNAL_OUT -> 3 nodes, Mixer  text='神秘の光が差し込む ↵ 静寂の...'
+    """
+    short = text[:60].replace("\n", " ↵ ")
+    _write("run", False,
+           f"{_node_tag(num)}  SIGNAL_OUT -> {destinations:<20} text='{short}'", ts=ts)

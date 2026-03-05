@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PBG Monitor — Parallel Botanical Garden</title>
+
+<!-- xterm.js -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+
+<!-- Socket.IO -->
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<style>
+  /* ===== RESET & VARIABLES ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-base:      #0c0e11;
+    --bg-surface:   #13161b;
+    --bg-raised:    #1a1e25;
+    --bg-input:     #0f1115;
+    --border:       #2a2f3a;
+    --border-focus: #4a9;
+    --text-primary: #d4dae4;
+    --text-muted:   #6b7280;
+    --text-dim:     #3e4550;
+    --accent:       #38bfa0;
+    --accent-dim:   #2a8f76;
+    --green:        #4ade80;
+    --red:          #f87171;
+    --yellow:       #fbbf24;
+    --blue:         #60a5fa;
+    --font-mono:    'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
+    --font-sans:    'DM Sans', 'Segoe UI', system-ui, sans-serif;
+    --radius:       6px;
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ===== HEADER ===== */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 52px;
+    min-height: 52px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+  }
+  .logo-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .header-info {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  /* ===== TABS ===== */
+  .tab-bar {
+    display: flex;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    gap: 2px;
+  }
+  .tab-btn {
+    padding: 10px 20px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .tab-btn:hover { color: var(--text-primary); }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  /* ===== PANELS ===== */
+  .panel-container {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  .panel {
+    position: absolute;
+    inset: 0;
+    display: none;
+    overflow: auto;
+  }
+  .panel.active { display: flex; }
+
+  /* ===== DEVICES PANEL ===== */
+  #panel-devices {
+    flex-direction: column;
+    padding: 20px 24px;
+    gap: 16px;
+    overflow-y: auto;
+  }
+  .cluster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+  }
+  .cluster-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .cluster-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .cluster-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 400;
+  }
+  .node-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    padding: 8px;
+  }
+  .node-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 4px;
+    border-radius: 4px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    font-family: var(--font-mono);
+  }
+  .node-chip:hover {
+    border-color: var(--accent-dim);
+    background: var(--bg-raised);
+  }
+  .node-chip.gateway {
+    border-color: var(--accent-dim);
+    background: rgba(56, 191, 160, 0.06);
+  }
+  .node-chip .nid {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .node-chip .nip {
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  /* ===== TERMINAL PANEL ===== */
+  #panel-terminal {
+    flex-direction: column;
+  }
+  .term-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 24px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .term-toolbar label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .term-toolbar select, .term-toolbar input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 6px 10px;
+    outline: none;
+  }
+  .term-toolbar select:focus, .term-toolbar input:focus {
+    border-color: var(--border-focus);
+  }
+  .term-toolbar select { min-width: 180px; }
+
+  .btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.02em;
+  }
+  .btn-connect {
+    background: var(--accent);
+    color: #0c0e11;
+    border-color: var(--accent);
+  }
+  .btn-connect:hover { filter: brightness(1.15); }
+  .btn-disconnect {
+    background: transparent;
+    color: var(--red);
+    border-color: var(--red);
+  }
+  .btn-disconnect:hover { background: rgba(248, 113, 113, 0.1); }
+
+  .term-status {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  #terminal-container {
+    flex: 1;
+    padding: 4px;
+    background: #0d0f12;
+    overflow: hidden;
+  }
+
+  /* ===== BROADCAST PANEL ===== */
+  #panel-broadcast {
+    flex-direction: row;
+    overflow: hidden;
+  }
+
+  .bc-sidebar {
+    width: 320px;
+    min-width: 320px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .bc-section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .bc-section-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  .scope-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+    transition: background 0.15s;
+  }
+  .scope-option:hover { background: var(--bg-raised); }
+  .scope-option input[type="radio"] {
+    accent-color: var(--accent);
+  }
+
+  .scope-sub {
+    margin-left: 24px;
+    margin-top: 6px;
+  }
+  .scope-sub select, .scope-sub input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 6px 10px;
+    outline: none;
+  }
+  .scope-sub select:focus, .scope-sub input:focus {
+    border-color: var(--border-focus);
+  }
+
+  .cmd-input-area {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .cmd-input-area textarea {
+    width: 100%;
+    min-height: 80px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 10px;
+    resize: vertical;
+    outline: none;
+  }
+  .cmd-input-area textarea:focus { border-color: var(--border-focus); }
+  .cmd-input-area textarea::placeholder { color: var(--text-dim); }
+
+  .cmd-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .btn-exec {
+    flex: 1;
+    background: var(--accent);
+    color: #0c0e11;
+    border-color: var(--accent);
+    font-weight: 600;
+    padding: 8px;
+  }
+  .btn-exec:hover { filter: brightness(1.15); }
+  .btn-exec:disabled { opacity: 0.4; cursor: not-allowed; filter: none; }
+  .btn-save {
+    background: transparent;
+    color: var(--text-muted);
+    border-color: var(--border);
+  }
+  .btn-save:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+  /* Snippets */
+  .snippet-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .snippet-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    transition: border-color 0.15s;
+  }
+  .snippet-item:hover { border-color: var(--accent-dim); }
+  .snippet-item .snippet-name { font-weight: 500; }
+  .snippet-item .snippet-del {
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 2px;
+  }
+  .snippet-item .snippet-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+
+  /* Results area */
+  .bc-results {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .bc-results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .bc-results-header h3 {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+  .bc-progress {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .bc-results-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .result-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .result-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .result-header .result-status {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+  }
+  .result-header .result-status.ok { background: var(--green); }
+  .result-header .result-status.fail { background: var(--red); }
+  .result-header .result-device { font-weight: 600; color: var(--text-primary); }
+  .result-header .result-ip { color: var(--text-muted); }
+  .result-header .result-time { margin-left: auto; color: var(--text-dim); font-size: 11px; }
+  .result-body {
+    display: none;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text-primary);
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .result-body.open { display: block; }
+  .result-stderr { color: var(--red); }
+
+  /* Empty state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    gap: 8px;
+  }
+  .empty-state .empty-icon { font-size: 32px; opacity: 0.3; }
+
+  /* ===== SCROLLBAR ===== */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  /* ===== TOAST ===== */
+  .toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .toast {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 10px 16px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    color: var(--text-primary);
+    animation: toast-in 0.25s ease-out;
+    max-width: 400px;
+  }
+  .toast.error { border-color: var(--red); color: var(--red); }
+  .toast.success { border-color: var(--green); color: var(--green); }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <span class="logo-dot"></span>
+    PBG MONITOR
+  </div>
+  <div class="header-info" id="header-info">—</div>
+</header>
+
+<!-- TABS -->
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="devices">Devices</button>
+  <button class="tab-btn" data-tab="terminal">Terminal</button>
+  <button class="tab-btn" data-tab="broadcast">Broadcast</button>
+</div>
+
+<!-- PANELS -->
+<div class="panel-container">
+
+  <!-- === DEVICES === -->
+  <div id="panel-devices" class="panel active">
+    <div class="cluster-grid" id="cluster-grid"></div>
+  </div>
+
+  <!-- === TERMINAL === -->
+  <div id="panel-terminal" class="panel">
+    <div class="term-toolbar">
+      <label>Device</label>
+      <select id="term-device-select"></select>
+      <button class="btn btn-connect" id="btn-ssh-connect">Connect</button>
+      <button class="btn btn-disconnect" id="btn-ssh-disconnect" style="display:none">Disconnect</button>
+      <div class="term-status">
+        <span class="status-dot" id="ssh-status-dot"></span>
+        <span id="ssh-status-text">Disconnected</span>
+      </div>
+    </div>
+    <div id="terminal-container"></div>
+  </div>
+
+  <!-- === BROADCAST === -->
+  <div id="panel-broadcast" class="panel">
+    <div class="bc-sidebar">
+      <!-- Scope -->
+      <div class="bc-section">
+        <div class="bc-section-title">Target Scope</div>
+        <label class="scope-option">
+          <input type="radio" name="bc-scope" value="all"> All devices (100)
+        </label>
+        <label class="scope-option">
+          <input type="radio" name="bc-scope" value="cluster" checked> Cluster
+        </label>
+        <div class="scope-sub" id="bc-cluster-sub">
+          <select id="bc-cluster-select"></select>
+        </div>
+        <label class="scope-option">
+          <input type="radio" name="bc-scope" value="node"> Specific nodes
+        </label>
+        <div class="scope-sub" id="bc-node-sub" style="display:none">
+          <input type="text" id="bc-node-input" placeholder="e.g. 1,2,3 or 1-10">
+        </div>
+      </div>
+
+      <!-- Command -->
+      <div class="cmd-input-area">
+        <div class="bc-section-title">Command</div>
+        <textarea id="bc-command" placeholder="Enter shell command...&#10;e.g. uname -a&#10;e.g. pip install --break-system-packages loguru"></textarea>
+        <div class="cmd-actions">
+          <button class="btn btn-exec" id="btn-bc-exec">Execute</button>
+          <button class="btn btn-save" id="btn-bc-save" title="Save as snippet">Save</button>
+        </div>
+      </div>
+
+      <!-- Snippets -->
+      <div class="bc-section" style="flex:1; overflow-y:auto;">
+        <div class="bc-section-title">Saved Snippets</div>
+        <div class="snippet-list" id="snippet-list">
+          <!-- built-in snippets -->
+        </div>
+      </div>
+    </div>
+
+    <div class="bc-results">
+      <div class="bc-results-header">
+        <h3>Results</h3>
+        <span class="bc-progress" id="bc-progress"></span>
+      </div>
+      <div class="bc-results-body" id="bc-results-body">
+        <div class="empty-state">
+          <span class="empty-icon">▸</span>
+          Execute a command to see results
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ===========================================================================
+// State
+// ===========================================================================
+let devices = {};       // id -> {device_id, ip, targets, is_gateway, cluster_id}
+let clusters = {};      // cluster_id -> [device, ...]
+let totalDevices = 0;
+
+let sshConnected = false;
+let term = null;
+let fitAddon = null;
+
+// Snippets (persisted in localStorage)
+let snippets = JSON.parse(localStorage.getItem('pbg_snippets') || '[]');
+if (snippets.length === 0) {
+  snippets = [
+    { name: "System info", command: "uname -a && uptime" },
+    { name: "Disk usage", command: "df -h /" },
+    { name: "Service status", command: "systemctl status pbg --no-pager -l" },
+    { name: "Last 50 logs", command: "journalctl -u pbg -n 50 --no-pager" },
+    { name: "Python packages", command: "pip list 2>/dev/null | head -30" },
+    { name: "Network check", command: "ip addr show | grep 'inet '" },
+    { name: "Git status", command: "cd ~/pbg && git log --oneline -5 2>/dev/null || echo 'no repo'" },
+    { name: "Restart service", command: "sudo systemctl restart pbg" },
+  ];
+  localStorage.setItem('pbg_snippets', JSON.stringify(snippets));
+}
+
+const socket = io();
+
+// ===========================================================================
+// Utils
+// ===========================================================================
+function toast(msg, type = '') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+function parseNodeRange(input) {
+  // "1,2,3" or "1-10" or "1-5,8,10-12"
+  const ids = [];
+  for (const part of input.split(',')) {
+    const trimmed = part.trim();
+    if (trimmed.includes('-')) {
+      const [a, b] = trimmed.split('-').map(Number);
+      for (let i = a; i <= b; i++) ids.push(i);
+    } else if (trimmed) {
+      ids.push(Number(trimmed));
+    }
+  }
+  return [...new Set(ids)].sort((a, b) => a - b);
+}
+
+// ===========================================================================
+// Tabs
+// ===========================================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+
+    if (btn.dataset.tab === 'terminal' && term) {
+      setTimeout(() => fitAddon.fit(), 50);
+    }
+  });
+});
+
+// ===========================================================================
+// Load devices
+// ===========================================================================
+async function loadDevices() {
+  const resp = await fetch('/api/devices');
+  const data = await resp.json();
+  clusters = data.clusters;
+  totalDevices = data.total;
+
+  // Flatten into devices map
+  devices = {};
+  for (const [cid, nodes] of Object.entries(clusters)) {
+    for (const n of nodes) {
+      n.cluster_id = parseInt(cid);
+      devices[n.device_id] = n;
+    }
+  }
+
+  document.getElementById('header-info').textContent =
+    `${totalDevices} devices · ${Object.keys(clusters).length} clusters`;
+
+  renderClusterGrid();
+  populateSelects();
+}
+
+function renderClusterGrid() {
+  const grid = document.getElementById('cluster-grid');
+  grid.innerHTML = '';
+
+  for (const [cid, nodes] of Object.entries(clusters)) {
+    const card = document.createElement('div');
+    card.className = 'cluster-card';
+
+    const header = document.createElement('div');
+    header.className = 'cluster-header';
+    header.innerHTML = `<span>Cluster ${cid}</span><span class="cluster-count">${nodes.length} nodes</span>`;
+
+    const nodeGrid = document.createElement('div');
+    nodeGrid.className = 'node-grid';
+
+    for (const n of nodes) {
+      const chip = document.createElement('div');
+      chip.className = 'node-chip' + (n.is_gateway ? ' gateway' : '');
+      chip.innerHTML = `<span class="nid">${n.device_id}</span><span class="nip">${n.ip}</span>`;
+      chip.title = `Device ${n.device_id}\n${n.ip}\nTargets: ${n.targets.join(', ')}${n.is_gateway ? '\n[Gateway]' : ''}`;
+      chip.addEventListener('click', () => {
+        // Switch to terminal tab and select this device
+        document.querySelector('[data-tab="terminal"]').click();
+        document.getElementById('term-device-select').value = n.device_id;
+      });
+      nodeGrid.appendChild(chip);
+    }
+
+    card.appendChild(header);
+    card.appendChild(nodeGrid);
+    grid.appendChild(card);
+  }
+}
+
+function populateSelects() {
+  // Terminal device select
+  const termSel = document.getElementById('term-device-select');
+  termSel.innerHTML = '';
+  for (const [cid, nodes] of Object.entries(clusters)) {
+    const optGroup = document.createElement('optgroup');
+    optGroup.label = `Cluster ${cid}`;
+    for (const n of nodes) {
+      const opt = document.createElement('option');
+      opt.value = n.device_id;
+      opt.textContent = `#${n.device_id} — ${n.ip}${n.is_gateway ? ' ★' : ''}`;
+      optGroup.appendChild(opt);
+    }
+    termSel.appendChild(optGroup);
+  }
+
+  // Broadcast cluster select
+  const bcSel = document.getElementById('bc-cluster-select');
+  bcSel.innerHTML = '';
+  for (const cid of Object.keys(clusters)) {
+    const opt = document.createElement('option');
+    opt.value = cid;
+    opt.textContent = `Cluster ${cid}  (${clusters[cid].length} nodes)`;
+    bcSel.appendChild(opt);
+  }
+}
+
+// ===========================================================================
+// Terminal (xterm.js + SSH over WebSocket)
+// ===========================================================================
+function initTerminal() {
+  term = new Terminal({
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+    fontSize: 14,
+    theme: {
+      background: '#0d0f12',
+      foreground: '#d4dae4',
+      cursor: '#38bfa0',
+      cursorAccent: '#0d0f12',
+      selectionBackground: 'rgba(56,191,160,0.25)',
+      black:   '#1a1e25',
+      red:     '#f87171',
+      green:   '#4ade80',
+      yellow:  '#fbbf24',
+      blue:    '#60a5fa',
+      magenta: '#c084fc',
+      cyan:    '#38bfa0',
+      white:   '#d4dae4',
+    },
+    cursorBlink: true,
+    scrollback: 5000,
+  });
+
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+  const container = document.getElementById('terminal-container');
+  term.open(container);
+  fitAddon.fit();
+
+  term.writeln('\x1b[38;5;109m╔══════════════════════════════════════════════════╗');
+  term.writeln('║   PBG Monitor — Select a device and connect      ║');
+  term.writeln('╚══════════════════════════════════════════════════╝\x1b[0m');
+  term.writeln('');
+
+  // Forward input to SSH
+  term.onData(data => {
+    if (sshConnected) {
+      socket.emit('ssh_input', { data: data });
+    }
+  });
+
+  // Resize handler
+  window.addEventListener('resize', () => {
+    if (term) {
+      fitAddon.fit();
+      if (sshConnected) {
+        socket.emit('ssh_resize', { cols: term.cols, rows: term.rows });
+      }
+    }
+  });
+
+  new ResizeObserver(() => {
+    if (term) fitAddon.fit();
+  }).observe(container);
+}
+
+// SSH connect/disconnect
+document.getElementById('btn-ssh-connect').addEventListener('click', () => {
+  const deviceId = document.getElementById('term-device-select').value;
+  if (!deviceId) return;
+  term.clear();
+  socket.emit('ssh_connect', { device_id: parseInt(deviceId) });
+});
+
+document.getElementById('btn-ssh-disconnect').addEventListener('click', () => {
+  socket.emit('ssh_disconnect');
+});
+
+socket.on('ssh_status', data => {
+  term.writeln(`\x1b[38;5;109m${data.message}\x1b[0m`);
+});
+
+socket.on('ssh_connected', data => {
+  sshConnected = true;
+  document.getElementById('btn-ssh-connect').style.display = 'none';
+  document.getElementById('btn-ssh-disconnect').style.display = '';
+  document.getElementById('ssh-status-dot').classList.add('connected');
+  document.getElementById('ssh-status-text').textContent = `Device #${data.device_id} (${data.host})`;
+  socket.emit('ssh_resize', { cols: term.cols, rows: term.rows });
+});
+
+socket.on('ssh_output', data => {
+  term.write(data.data);
+});
+
+socket.on('ssh_disconnected', () => {
+  if (sshConnected) {
+    sshConnected = false;
+    document.getElementById('btn-ssh-connect').style.display = '';
+    document.getElementById('btn-ssh-disconnect').style.display = 'none';
+    document.getElementById('ssh-status-dot').classList.remove('connected');
+    document.getElementById('ssh-status-text').textContent = 'Disconnected';
+    term.writeln('\r\n\x1b[38;5;167m— Session ended —\x1b[0m\r\n');
+  }
+});
+
+socket.on('ssh_error', data => {
+  term.writeln(`\r\n\x1b[38;5;167mError: ${data.message}\x1b[0m\r\n`);
+  toast(data.message, 'error');
+});
+
+// ===========================================================================
+// Broadcast
+// ===========================================================================
+// Scope radio toggle
+document.querySelectorAll('input[name="bc-scope"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.getElementById('bc-cluster-sub').style.display =
+      radio.value === 'cluster' ? '' : 'none';
+    document.getElementById('bc-node-sub').style.display =
+      radio.value === 'node' ? '' : 'none';
+  });
+});
+
+let bcRunning = false;
+let bcReceivedCount = 0;
+let bcTotalCount = 0;
+
+document.getElementById('btn-bc-exec').addEventListener('click', () => {
+  if (bcRunning) return;
+  const command = document.getElementById('bc-command').value.trim();
+  if (!command) { toast('Enter a command', 'error'); return; }
+
+  const scope = document.querySelector('input[name="bc-scope"]:checked').value;
+  let scope_value = '';
+  if (scope === 'cluster') {
+    scope_value = document.getElementById('bc-cluster-select').value;
+  } else if (scope === 'node') {
+    const raw = document.getElementById('bc-node-input').value.trim();
+    const ids = parseNodeRange(raw);
+    if (ids.length === 0) { toast('Enter valid node IDs', 'error'); return; }
+    scope_value = ids.join(',');
+  }
+
+  socket.emit('broadcast_command', { command, scope, scope_value });
+});
+
+socket.on('broadcast_start', data => {
+  bcRunning = true;
+  bcReceivedCount = 0;
+  bcTotalCount = data.total;
+  document.getElementById('btn-bc-exec').disabled = true;
+  document.getElementById('bc-results-body').innerHTML = '';
+  document.getElementById('bc-progress').textContent = `0 / ${bcTotalCount}`;
+});
+
+socket.on('broadcast_result', data => {
+  bcReceivedCount++;
+  document.getElementById('bc-progress').textContent = `${bcReceivedCount} / ${bcTotalCount}`;
+
+  const card = document.createElement('div');
+  card.className = 'result-card';
+
+  const header = document.createElement('div');
+  header.className = 'result-header';
+  header.innerHTML = `
+    <span class="result-status ${data.success ? 'ok' : 'fail'}"></span>
+    <span class="result-device">#${data.device_id}</span>
+    <span class="result-ip">${data.host}</span>
+    <span class="result-time">${data.elapsed}s · exit ${data.exit_code}</span>
+  `;
+
+  const body = document.createElement('div');
+  body.className = 'result-body';
+  let content = '';
+  if (data.stdout) content += data.stdout;
+  if (data.stderr) content += `<span class="result-stderr">${escapeHtml(data.stderr)}</span>`;
+  if (!content) content = '<span style="color:var(--text-dim)">(no output)</span>';
+  else content = escapeHtml(data.stdout) + (data.stderr ? `\n<span class="result-stderr">${escapeHtml(data.stderr)}</span>` : '');
+  body.innerHTML = content;
+
+  header.addEventListener('click', () => body.classList.toggle('open'));
+
+  card.appendChild(header);
+  card.appendChild(body);
+  document.getElementById('bc-results-body').appendChild(card);
+});
+
+socket.on('broadcast_done', data => {
+  bcRunning = false;
+  document.getElementById('btn-bc-exec').disabled = false;
+  document.getElementById('bc-progress').textContent =
+    `Done: ${data.success} ok, ${data.failed} failed / ${data.total}`;
+  toast(`Broadcast complete: ${data.success}/${data.total} succeeded`, data.failed > 0 ? 'error' : 'success');
+});
+
+socket.on('broadcast_error', data => {
+  bcRunning = false;
+  document.getElementById('btn-bc-exec').disabled = false;
+  toast(data.message, 'error');
+});
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ===========================================================================
+// Snippets
+// ===========================================================================
+function renderSnippets() {
+  const list = document.getElementById('snippet-list');
+  list.innerHTML = '';
+  snippets.forEach((s, i) => {
+    const item = document.createElement('div');
+    item.className = 'snippet-item';
+    item.innerHTML = `<span class="snippet-name">${escapeHtml(s.name)}</span><span class="snippet-del" data-idx="${i}">✕</span>`;
+    item.addEventListener('click', (e) => {
+      if (e.target.classList.contains('snippet-del')) {
+        snippets.splice(parseInt(e.target.dataset.idx), 1);
+        localStorage.setItem('pbg_snippets', JSON.stringify(snippets));
+        renderSnippets();
+        return;
+      }
+      document.getElementById('bc-command').value = s.command;
+    });
+    list.appendChild(item);
+  });
+}
+
+document.getElementById('btn-bc-save').addEventListener('click', () => {
+  const cmd = document.getElementById('bc-command').value.trim();
+  if (!cmd) return;
+  const name = prompt('Snippet name:');
+  if (!name) return;
+  snippets.push({ name, command: cmd });
+  localStorage.setItem('pbg_snippets', JSON.stringify(snippets));
+  renderSnippets();
+  toast('Snippet saved', 'success');
+});
+
+// ===========================================================================
+// Init
+// ===========================================================================
+loadDevices();
+initTerminal();
+renderSnippets();
+</script>
+</body>
+</html>
