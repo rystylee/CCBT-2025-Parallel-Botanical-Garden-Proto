@@ -230,30 +230,39 @@ def ffmpeg_convert_for_tinyplay_with_rumble(
                     logger.warning(f"Failed to remove temporary file {tmp_file}: {e}")
 
 
-def tinyplay_play(wav_path: str, card: int = 0, device: int = 1) -> None:
+def tinyplay_play(wav_path: str, card: int = 0, device: int = 1, playback_device: str = "") -> None:
     """
-    Play WAV file using tinyplay command.
+    Play WAV file using aplay (ALSA) or tinyplay (legacy fallback).
+
+    When playback_device is set (e.g. "dmixer"), uses aplay -D <device>.
+    This routes through the dmix plugin, which keeps the ALSA device open
+    and prevents amp pop noise caused by the driver toggling pa_gpio.
 
     Args:
         wav_path: WAV file path to play
-        card: ALSA card number
-        device: ALSA device number
+        card: ALSA card number (legacy tinyplay fallback)
+        device: ALSA device number (legacy tinyplay fallback)
+        playback_device: ALSA device name for aplay (e.g. "dmixer", "default")
 
     Raises:
-        RuntimeError: tinyplay playback failed
+        RuntimeError: playback failed
     """
     import subprocess
 
-    cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
+    if playback_device:
+        cmd = ["aplay", "-D", playback_device, str(wav_path)]
+    else:
+        # Legacy fallback: tinyplay (排他アクセス、ポップノイズあり)
+        cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
 
-    logger.debug(f"tinyplay command: {' '.join(cmd)}")
+    logger.debug(f"playback command: {' '.join(cmd)}")
 
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
-        logger.info(f"tinyplay playback completed: {wav_path}")
+        logger.info(f"playback completed: {wav_path}")
     except subprocess.CalledProcessError as e:
-        logger.error(f"tinyplay playback failed: {e.stderr}")
-        raise RuntimeError(f"tinyplay playback failed: {e.stderr}")
+        logger.error(f"playback failed: {e.stderr}")
+        raise RuntimeError(f"playback failed: {e.stderr}")
 
 
 # ==========================================================================
@@ -409,45 +418,49 @@ class StackFlowTTSClient:
             return None
 
     def start_playback(self, wav_path: str) -> "subprocess.Popen":
-        """
-        Start WAV playback using tinyplay (non-blocking Popen).
+            """
+            Start WAV playback using aplay/tinyplay (non-blocking Popen).
+            """
+            import subprocess
 
-        Args:
-            wav_path: Path to WAV file to play
+            audio_config = self.config.get("audio", {})
+            playback_device = audio_config.get("playback_device", "")
 
-        Returns:
-            subprocess.Popen: The running tinyplay process
-        """
-        import subprocess
+            if playback_device:
+                cmd = ["aplay", "-D", playback_device, str(wav_path)]
+            else:
+                card = audio_config.get("tinyplay_card", 0)
+                device = audio_config.get("tinyplay_device", 1)
+                cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
 
-        audio_config = self.config.get("audio", {})
-        card = audio_config.get("tinyplay_card", 0)
-        device = audio_config.get("tinyplay_device", 1)
-
-        cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
-        logger.info(f"Starting tinyplay: {' '.join(cmd)}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        return proc
+            logger.info(f"Starting playback: {' '.join(cmd)}")
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            return proc
 
     def play_wav_sync(self, wav_path: str) -> None:
-        """
-        Play WAV file using tinyplay (blocking, for use with asyncio.to_thread).
-        """
-        import subprocess
+            """
+            Play WAV file using aplay/tinyplay (blocking, for use with asyncio.to_thread).
+            """
+            import subprocess
 
-        audio_config = self.config.get("audio", {})
-        card = audio_config.get("tinyplay_card", 0)
-        device = audio_config.get("tinyplay_device", 1)
+            audio_config = self.config.get("audio", {})
+            playback_device = audio_config.get("playback_device", "")
 
-        cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
-        logger.info(f"Starting tinyplay: {' '.join(cmd)}")
+            if playback_device:
+                cmd = ["aplay", "-D", playback_device, str(wav_path)]
+            else:
+                card = audio_config.get("tinyplay_card", 0)
+                device = audio_config.get("tinyplay_device", 1)
+                cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(wav_path)]
 
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-            logger.info(f"tinyplay playback completed: {wav_path}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"tinyplay playback failed: {e.stderr}")
-            raise RuntimeError(f"tinyplay playback failed: {e.stderr}")
+            logger.info(f"Starting playback: {' '.join(cmd)}")
+
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                logger.info(f"playback completed: {wav_path}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"playback failed: {e.stderr}")
+                raise RuntimeError(f"playback failed: {e.stderr}")
 
     def cleanup_wav(self, wav_path: str) -> None:
         """Remove temporary WAV file."""
@@ -484,6 +497,7 @@ class StackFlowTTSClient:
         sample_format = audio_config.get("sample_format", "s16")
         tinyplay_card = audio_config.get("tinyplay_card", 0)
         tinyplay_device = audio_config.get("tinyplay_device", 1)
+        playback_device = audio_config.get("playback_device", "")
 
         # Ensure temp directory exists
         os.makedirs(temp_wav_dir, exist_ok=True)
@@ -548,7 +562,7 @@ class StackFlowTTSClient:
                     logger.error(f"on_start_callback failed: {e}")
 
             # Execute tinyplay
-            tinyplay_play(playback_path, tinyplay_card, tinyplay_device)
+            tinyplay_play(playback_path, tinyplay_card, tinyplay_device, playback_device)
 
             # Call on_end_callback after tinyplay ends successfully
             if on_end_callback:

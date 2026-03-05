@@ -1,0 +1,21 @@
+[Unit]
+Description=CCBT Audio Keepalive - アンプポップノイズ防止
+# ALSAデバイスを常時openに保ち、ドライバによるアンプGPIOトグルを抑止する
+# pa_gpio->pa_speaker が毎回 1→0 されることで発生するポップノイズの対策
+After=sound.target
+Before=ccbt-bi-check.service
+
+[Service]
+Type=simple
+# dmixプラグイン経由で無音を流し続ける
+# /dev/zero → 無限の無音PCMデータ
+ExecStart=/usr/bin/aplay -D dmixer -t raw -f S16_LE -r 32000 -c 2 -q /dev/zero
+Restart=always
+RestartSec=2
+
+# aplayが確実にクリーンアップされるよう
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

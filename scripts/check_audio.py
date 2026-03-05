@@ -82,22 +82,22 @@ def generate_test_tone_wav(
                 f.write(struct.pack("<h", sample))
 
 
-def check_audio(card: int, device: int, freq: float, duration: float, sample_rate: int, channels: int):
-    """テストトーンを生成してtinyplayで再生"""
+def check_audio(card: int, device: int, freq: float, duration: float, sample_rate: int, channels: int, playback_device: str = "dmixer"):
+    """テストトーンを生成してaplay/tinyplayで再生"""
 
-    print(f"[AUDIO CHECK] Card: {card}, Device: {device}")
+    print(f"[AUDIO CHECK] Playback device: {playback_device or f'tinyplay -D{card} -d{device}'}")
     print(f"[AUDIO CHECK] Freq: {freq}Hz, Duration: {duration}s, Rate: {sample_rate}Hz, Ch: {channels}")
     print()
 
-    # --- Step 1: tinyplayの存在確認 ---
-    print("[AUDIO CHECK] Step 1: tinyplay コマンドの確認...")
+    # --- Step 1: 再生コマンドの存在確認 ---
+    playback_cmd = "aplay" if playback_device else "tinyplay"
+    print(f"[AUDIO CHECK] Step 1: {playback_cmd} コマンドの確認...")
     try:
-        result = subprocess.run(["which", "tinyplay"], capture_output=True, text=True)
+        result = subprocess.run(["which", playback_cmd], capture_output=True, text=True)
         if result.returncode != 0:
-            print("[FAIL] tinyplay が見つかりません")
-            print("       → apt install tinyalsa-utils でインストールしてください")
+            print(f"[FAIL] {playback_cmd} が見つかりません")
             return False
-        print(f"[OK] tinyplay found: {result.stdout.strip()}")
+        print(f"[OK] {playback_cmd} found: {result.stdout.strip()}")
     except FileNotFoundError:
         print("[FAIL] which コマンドが見つかりません")
         return False
@@ -119,48 +119,44 @@ def check_audio(card: int, device: int, freq: float, duration: float, sample_rat
         print(f"[FAIL] WAVファイル生成エラー: {e}")
         return False
 
-    # --- Step 3: tinyplayで再生 ---
-    print(f"[AUDIO CHECK] Step 3: tinyplay で再生中 ({freq}Hz, {duration}秒)...")
+    # --- Step 3: 再生 ---
+    print(f"[AUDIO CHECK] Step 3: 再生中 ({freq}Hz, {duration}秒)...")
     try:
-        cmd = ["tinyplay", f"-D{card}", f"-d{device}", tmp_path]
+        if playback_device:
+            cmd = ["aplay", "-D", playback_device, tmp_path]
+        else:
+            cmd = ["tinyplay", f"-D{card}", f"-d{device}", tmp_path]
         print(f"              cmd: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 5)
         if result.returncode != 0:
-            print(f"[FAIL] tinyplay エラー (exit code: {result.returncode})")
+            print(f"[FAIL] 再生エラー (exit code: {result.returncode})")
             if result.stderr:
                 print(f"       stderr: {result.stderr.strip()}")
             return False
-        print("[OK] tinyplay 再生完了")
+        print("[OK] 再生完了")
     except subprocess.TimeoutExpired:
-        print("[WARN] tinyplay タイムアウト（再生は完了した可能性あり）")
+        print("[WARN] 再生タイムアウト（再生は完了した可能性あり）")
     except FileNotFoundError:
-        print("[FAIL] tinyplay が実行できません")
+        print("[FAIL] 再生コマンドが実行できません")
         return False
     except Exception as e:
-        print(f"[FAIL] tinyplay 実行エラー: {e}")
+        print(f"[FAIL] 再生実行エラー: {e}")
         return False
-    finally:
-        # Cleanup
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-    print()
-    print("[OK] 音声出力チェック完了 ✓")
-    print("     → スピーカーからテストトーンが聞こえたことを確認してください")
-    return True
-
 
 def main():
     parser = argparse.ArgumentParser(description="音声出力チェック（デバイス上で実行）")
     parser.add_argument("--card", type=int, default=0, help="ALSAカード番号 (default: 0)")
     parser.add_argument("--device", type=int, default=1, help="ALSAデバイス番号 (default: 1)")
+    parser.add_argument("--playback-device", type=str, default="dmixer",
+                        help="ALSA再生デバイス名 (default: dmixer, 空文字でtinyplay fallback)")
     parser.add_argument("--freq", type=float, default=440.0, help="テストトーン周波数Hz (default: 440)")
     parser.add_argument("--duration", type=float, default=1.5, help="再生時間（秒） (default: 1.5)")
     parser.add_argument("--sample-rate", type=int, default=32000, help="サンプルレートHz (default: 32000)")
     parser.add_argument("--channels", type=int, default=2, help="チャンネル数 (default: 2)")
     args = parser.parse_args()
 
-    ok = check_audio(args.card, args.device, args.freq, args.duration, args.sample_rate, args.channels)
+    ok = check_audio(args.card, args.device, args.freq, args.duration,
+                     args.sample_rate, args.channels, args.playback_device)
     sys.exit(0 if ok else 1)
 
 

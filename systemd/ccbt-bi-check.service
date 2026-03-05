@@ -1,9 +1,7 @@
 [Unit]
 Description=CCBT BI Device Boot Check - 起動時全機能チェック
-# 依存サービスが起動した後に実行
-After=network.target llm-llm.service llm-melotts.service llm-openai-api.service
-# 依存サービスが無くてもチェック自体は実行する（失敗として記録）
-Wants=llm-llm.service llm-melotts.service llm-openai-api.service
+After=network.target llm-llm.service llm-melotts.service llm-openai-api.service ccbt-audio-keepalive.service
+Wants=llm-llm.service llm-melotts.service llm-openai-api.service ccbt-audio-keepalive.service
 
 [Service]
 Type=oneshot

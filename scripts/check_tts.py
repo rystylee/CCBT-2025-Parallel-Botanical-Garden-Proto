@@ -41,6 +41,7 @@ def check_tts(
     card: int,
     device: int,
     ffmpeg_convert: bool,
+    playback_device: str = "dmixer",
 ):
     """TTS APIでWAVを生成し、オプションで再生"""
 
@@ -144,24 +145,25 @@ def check_tts(
 
     # --- Step 4: 再生（オプション） ---
     if play:
-        print(f"[TTS CHECK] Step 4: tinyplay で再生...")
+        print(f"[TTS CHECK] Step 4: 再生...")
         try:
-            cmd = ["tinyplay", f"-D{card}", f"-d{device}", playback_path]
+            if playback_device:
+                cmd = ["aplay", "-D", playback_device, playback_path]
+            else:
+                cmd = ["tinyplay", f"-D{card}", f"-d{device}", playback_path]
             print(f"              cmd: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             if result.returncode != 0:
-                print(f"[FAIL] tinyplay再生エラー: {result.stderr.strip()}")
+                print(f"[FAIL] 再生エラー: {result.stderr.strip()}")
                 return False
-            print("[OK] tinyplay 再生完了")
+            print("[OK] 再生完了")
         except subprocess.TimeoutExpired:
-            print("[WARN] tinyplay タイムアウト")
+            print("[WARN] 再生タイムアウト")
         except FileNotFoundError:
-            print("[WARN] tinyplay が見つかりません")
+            print("[WARN] 再生コマンドが見つかりません")
         except Exception as e:
-            print(f"[FAIL] tinyplay 再生エラー: {e}")
+            print(f"[FAIL] 再生エラー: {e}")
             return False
-    else:
-        print("[TTS CHECK] Step 4: 再生スキップ（--play で再生可能）")
 
     # --- Cleanup ---
     for path in [raw_wav, final_wav]:
@@ -187,9 +189,11 @@ def main():
     parser.add_argument("--text", type=str, default=None,
                         help="テストテキスト（省略時はデフォルト）")
     parser.add_argument("--play", action="store_true",
-                        help="生成後にtinyplayで再生する")
+                        help="生成後にaplay/tinyplayで再生する")
     parser.add_argument("--card", type=int, default=0, help="ALSAカード番号 (default: 0)")
     parser.add_argument("--device", type=int, default=1, help="ALSAデバイス番号 (default: 1)")
+    parser.add_argument("--playback-device", type=str, default="dmixer",
+                        help="ALSA再生デバイス名 (default: dmixer)")
     parser.add_argument("--no-ffmpeg", action="store_true",
                         help="FFmpeg変換をスキップ")
     args = parser.parse_args()
@@ -203,6 +207,7 @@ def main():
         card=args.card,
         device=args.device,
         ffmpeg_convert=not args.no_ffmpeg,
+        playback_device=args.playback_device,
     )
     sys.exit(0 if ok else 1)
 

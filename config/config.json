@@ -23,6 +23,7 @@
   "stack_flow_tts": {},
   "system": {},
   "audio": {
+    "playback_device": "dmixer",
     "tinyplay_card": 0,
     "tinyplay_device": 1,
     "sample_rate": 48000,
