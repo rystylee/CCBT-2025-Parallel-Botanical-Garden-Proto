@@ -882,19 +882,15 @@ def make_system_html():
 <header><div><h1>&#9672; BI MONITOR</h1><div class="sub">SYSTEM \u2014 ping / inet / git pull / reboot</div></div><nav>{nav}</nav></header>
 <div class="toolbar">
   <button class="btn bp" onclick="runNums('ping',allNums())">&#9654; PING ALL</button>
+  <button class="mbtn" id="autoBtn" onclick="toggleAuto()" title="PING ALL を定期実行">AUTO</button>
+  <select class="mbtn" id="autoSec" onchange="resetAutoTimer()" style="padding:3px 4px;font-size:.58rem;border-color:var(--border);background:transparent;" title="AUTO間隔">
+    <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option><option value="300">5m</option>
+  </select>
+  <span class="mbtn" id="autoCountdown" style="cursor:default;min-width:38px;text-align:center;border-color:transparent;color:var(--dim);font-size:.55rem"></span>
   <button class="btn b2" onclick="runNums('inet',allNums())">&#9654; INET ALL</button>
   <button class="btn" onclick="if(confirm('GIT PULL ALL 100 NODES?'))runNums('gitpull',allNums())">&#9654; GIT PULL ALL</button>
   <button class="btn bd" onclick="if(confirm('REBOOT ALL 100 NODES?\\n\u3053\u306e\u64cd\u4f5c\u306f\u5143\u306b\u623b\u305b\u307e\u305b\u3093'))runNums('reboot',allNums())">&#9888; REBOOT ALL</button>
   <button class="btn bd" onclick="resetNums(allNums())">RESET</button>
-  <div class="sep"></div>
-  <div class="mode-bar">
-    <span>AUTO:</span>
-    <button class="mbtn" id="autoBtn" onclick="toggleAuto()">OFF</button>
-    <select class="mbtn" id="autoSec" onchange="resetAutoTimer()" style="padding:3px 4px;font-size:.58rem;border-color:var(--border);background:transparent;">
-      <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option><option value="300">5m</option>
-    </select>
-    <span class="mbtn" id="autoCountdown" style="cursor:default;min-width:42px;text-align:center;border-color:transparent;color:var(--dim);font-size:.55rem">\u2014</span>
-  </div>
   <div class="sep"></div>
   <div class="mode-bar">
     <span>CLICK:</span>
