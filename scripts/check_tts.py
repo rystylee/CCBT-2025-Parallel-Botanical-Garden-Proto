@@ -4,7 +4,11 @@ TTS音声合成チェック - デバイス上で実行
 
 OpenAI互換TTS API (MeloTTS) に接続してWAVファイルを生成し、
 音声合成が正常に動作するか確認する。
---play オプションでtinyplay再生も実行可能。
+デフォルトで再生まで実行。--no-play で再生スキップ。
+
+デバイスIPアドレス（/etc/network/interfaces の address 10.0.0.X）から
+デバイス番号を自動取得し、「私はX番のデバイスです。I am device number X.」
+というテキストを生成・再生する。
 
 前提:
     StackFlow MeloTTS サービスが起動済み (systemctl status llm-melotts)
@@ -12,23 +16,62 @@ OpenAI互換TTS API (MeloTTS) に接続してWAVファイルを生成し、
 
 使い方:
     uv run python scripts/check_tts.py
-    uv run python scripts/check_tts.py --play
-    uv run python scripts/check_tts.py --text "テスト音声" --play
-    uv run python scripts/check_tts.py --lang en --text "Hello world" --play
+    uv run python scripts/check_tts.py --no-play
+    uv run python scripts/check_tts.py --text "テスト音声"
+    uv run python scripts/check_tts.py --lang en --text "Hello world"
 """
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import time
 
+
+def _get_device_index() -> int | None:
+    """
+    /etc/network/interfaces の address 10.0.0.X から X を取得。
+    取得できなければ None を返す。
+    """
+    try:
+        with open("/etc/network/interfaces") as f:
+            for line in f:
+                m = re.match(r"\s*address\s+10\.0\.0\.(\d+)", line)
+                if m:
+                    return int(m.group(1))
+    except FileNotFoundError:
+        pass
+    return None
+
+
+_idx = _get_device_index()
+_default_ja = (
+    f"私は{_idx}番のデバイスです。I am device number {_idx}."
+    if _idx is not None
+    else "こんにちは、音声合成のテストです。"
+)
+
 # 言語別デフォルト設定
 DEFAULT_SETTINGS = {
-    "ja": {"model": "melotts-ja-jp", "text": "こんにちは、音声合成のテストです。"},
-    "en": {"model": "melotts-en-us", "text": "Hello, this is a text to speech test."},
-    "zh": {"model": "melotts-zh-cn", "text": "你好，这是语音合成测试。"},
+    "ja": {"model": "melotts-ja-jp", "text": _default_ja},
+    "en": {
+        "model": "melotts-en-us",
+        "text": (
+            f"I am device number {_idx}."
+            if _idx is not None
+            else "Hello, this is a text to speech test."
+        ),
+    },
+    "zh": {
+        "model": "melotts-zh-cn",
+        "text": (
+            f"我是第{_idx}号设备。"
+            if _idx is not None
+            else "你好，这是语音合成测试。"
+        ),
+    },
 }
 
 
@@ -55,6 +98,10 @@ def check_tts(
     print(f"[TTS CHECK] Model: {model}")
     print(f"[TTS CHECK] Text: {text}")
     print(f"[TTS CHECK] Play: {play}")
+    if _idx is not None:
+        print(f"[TTS CHECK] Device Index: {_idx} (from /etc/network/interfaces)")
+    else:
+        print("[TTS CHECK] Device Index: unknown (fallback text)")
     print()
 
     tmp_dir = tempfile.gettempdir()
@@ -143,7 +190,7 @@ def check_tts(
     else:
         print("[TTS CHECK] Step 3: FFmpeg変換スキップ")
 
-    # --- Step 4: 再生（オプション） ---
+    # --- Step 4: 再生 ---
     if play:
         print(f"[TTS CHECK] Step 4: 再生...")
         try:
@@ -164,6 +211,8 @@ def check_tts(
         except Exception as e:
             print(f"[FAIL] 再生エラー: {e}")
             return False
+    else:
+        print("[TTS CHECK] Step 4: 再生スキップ（--no-play）")
 
     # --- Cleanup ---
     for path in [raw_wav, final_wav]:
@@ -187,9 +236,9 @@ def main():
     parser.add_argument("--model", type=str, default=None,
                         help="TTSモデル名（省略時は言語に応じて自動選択）")
     parser.add_argument("--text", type=str, default=None,
-                        help="テストテキスト（省略時はデフォルト）")
-    parser.add_argument("--play", action="store_true",
-                        help="生成後にaplay/tinyplayで再生する")
+                        help="テストテキスト（省略時はデバイス番号から自動生成）")
+    parser.add_argument("--no-play", action="store_true",
+                        help="再生をスキップする（デフォルトは再生あり）")
     parser.add_argument("--card", type=int, default=0, help="ALSAカード番号 (default: 0)")
     parser.add_argument("--device", type=int, default=1, help="ALSAデバイス番号 (default: 1)")
     parser.add_argument("--playback-device", type=str, default="dmixer",
@@ -203,7 +252,7 @@ def main():
         lang=args.lang,
         model=args.model,
         text=args.text,
-        play=args.play,
+        play=not args.no_play,
         card=args.card,
         device=args.device,
         ffmpeg_convert=not args.no_ffmpeg,
