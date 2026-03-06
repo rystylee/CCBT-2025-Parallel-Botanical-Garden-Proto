@@ -33,7 +33,7 @@ DRIVE_PATH   = Path(os.getenv("DRIVE_PATH", "/workspace/seed-vc"))
 TTS_DIR      = Path(os.getenv("TTS_DIR", str(DRIVE_PATH / "tts_out")))
 OUT_DIR      = Path(os.getenv("OUT_DIR", str(DRIVE_PATH / "outputs")))
 
-TARGET_AUDIO = Path(os.getenv("TARGET_AUDIO", "/workspace/audio/nainiku.mp3"))
+TARGET_AUDIO = Path(os.getenv("TARGET_AUDIO", "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3"))
 INFER_SCRIPT = Path(os.getenv("INFER_SCRIPT", str(DRIVE_PATH / "inference_v2.py")))
 
 POLL_SEC     = float(os.getenv("POLL_SEC", "0.2"))

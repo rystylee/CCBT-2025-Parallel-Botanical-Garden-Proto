@@ -47,12 +47,13 @@ source .venv/bin/activate
 ### 3. RunPod環境構築 (初回のみ)
 
 ```bash
-# MeloTTS + Seed-VC をインストール
-python3 runpod_manager.py setup
+# RunPodにSSHして、リポジトリをclone
+ssh dmw81eq7mnro4b-644113b7@ssh.runpod.io -i ~/.ssh/id_ed25519
+mkdir -p ~/dev && cd ~/dev
+git clone <repo_url> CCBT-2025-Parallel-Botanical-Garden-Proto
 
-# nainiku.mp3 をアップロード (初回のみ)
-scp -i ~/.ssh/id_ed25519 audio/nainiku.mp3 \
-    dmw81eq7mnro4b-644113b7@ssh.runpod.io:/workspace/audio/nainiku.mp3
+# Ubuntu側からMeloTTS + Seed-VC をインストール
+python3 runpod_manager.py setup
 ```
 
 ### 4. 接続確認

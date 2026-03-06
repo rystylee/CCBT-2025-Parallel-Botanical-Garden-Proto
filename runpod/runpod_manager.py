@@ -31,7 +31,7 @@ import sys
 import time
 from pathlib import Path
 
-from ssh_helper import load_config, ssh_run, scp_upload, ssh_check_alive
+from ssh_helper import load_config, ssh_run, ssh_check_alive
 
 TMUX_SESSION = "voice_worker"
 
@@ -63,6 +63,7 @@ def cmd_check(cfg: dict) -> bool:
     # 既存環境確認
     rp = cfg["runpod"]
     checks = {
+        "リポジトリ": rp.get("repo_dir", ""),
         "Seed-VC": rp["seed_vc_dir"],
         "MeloTTS": rp["melo_dir"],
         "target_audio": rp["target_audio"],
@@ -122,36 +123,42 @@ fi
         print(r.stderr, file=sys.stderr)
 
     # ディレクトリ作成
-    dirs = [rp["osc_json_dir"], rp["tts_out_dir"], rp["vc_out_dir"], rp.get("audio_dir", "/workspace/audio")]
+    dirs = [rp["osc_json_dir"], rp["tts_out_dir"], rp["vc_out_dir"]]
     ssh_run(cfg, f"mkdir -p {' '.join(dirs)}", check=False, timeout=10)
 
     # target_audio存在確認
     r = ssh_run(cfg, f"test -f {rp['target_audio']} && echo OK || echo MISSING", timeout=10)
     if "MISSING" in r.stdout:
         print(f"[setup] ⚠️  target_audio が見つかりません: {rp['target_audio']}")
-        print(f"         nainiku.mp3 を RunPod へ手動アップロードしてください:")
-        print(f"         scp -i ~/.ssh/id_ed25519 audio/nainiku.mp3 {cfg['ssh']['user']}@{cfg['ssh']['host']}:{rp['target_audio']}")
+        print(f"         リポジトリが正しく clone されているか確認してください")
+        print(f"         (audio/nainiku.mp3 がリポジトリに含まれている必要があります)")
 
     print("[setup] ✅ セットアップ完了")
 
 
 def cmd_deploy(cfg: dict):
-    """ワーカースクリプトをRunPodへデプロイ"""
+    """リポジトリを git pull で最新化"""
     rp = cfg["runpod"]
-    local_dir = Path(__file__).parent
+    repo_dir = rp.get("repo_dir")
 
-    # デプロイ対象ファイル
-    files_to_deploy = [
-        ("runpod_a_make_voice.py", rp["worker_script"]),
-    ]
+    if not repo_dir:
+        print("[deploy] ❌ repo_dir が設定されていません")
+        return
 
-    for local_name, remote_path in files_to_deploy:
-        local_path = local_dir / local_name
-        if not local_path.exists():
-            print(f"[deploy] ⚠️  {local_name} が見つかりません、スキップ")
-            continue
-        print(f"[deploy] {local_name} → {remote_path}")
-        scp_upload(cfg, str(local_path), remote_path)
+    # リポジトリ存在確認
+    r = ssh_run(cfg, f"test -d {repo_dir}/.git && echo OK || echo MISSING", check=False, timeout=10)
+    if "MISSING" in r.stdout:
+        print(f"[deploy] ❌ リポジトリが見つかりません: {repo_dir}")
+        print(f"         RunPod上で先に git clone してください:")
+        print(f"         cd /workspace && git clone <repo_url>")
+        return
+
+    print(f"[deploy] git pull: {repo_dir}")
+    r = ssh_run(cfg, f"cd {repo_dir} && git pull", check=False, timeout=30)
+    print(r.stdout)
+    if r.returncode != 0:
+        print(f"[deploy] ⚠️  git pull 失敗: {r.stderr}")
+        return
 
     print("[deploy] ✅ デプロイ完了")
 

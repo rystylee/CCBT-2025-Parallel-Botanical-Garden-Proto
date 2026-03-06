@@ -17,14 +17,15 @@
   "runpod": {
     "_desc": "RunPod上のパス構成",
     "workspace": "/workspace",
+    "repo_dir": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto",
     "seed_vc_dir": "/workspace/seed-vc",
     "melo_dir": "/workspace/MeloTTS",
     "osc_json_dir": "/workspace/seed-vc/osc",
     "tts_out_dir": "/workspace/seed-vc/tts_out",
     "vc_out_dir": "/workspace/seed-vc/outputs",
-    "audio_dir": "/workspace/audio",
-    "target_audio": "/workspace/audio/nainiku.mp3",
-    "worker_script": "/workspace/seed-vc/runpod_a_make_voice.py"
+    "audio_dir": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio",
+    "target_audio": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3",
+    "worker_script": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/runpod/runpod_a_make_voice.py"
   },
 
   "ubuntu_sender": {
