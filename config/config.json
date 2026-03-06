@@ -36,16 +36,16 @@
     "temp_wav_dir": "./tmp",
 
     "_desc_pitch": "--- ピッチ（音程） --- 毎回この範囲からランダムに中心値が決まる。負の値=低い声。-9で人の声感が残る、-16でほぼ判別不能",
-    "rumble_pitch_steps_range": {"min": -4.0, "max": 6.0},
+    "rumble_pitch_steps_range": {"min": -2.0, "max": 6.0},
 
     "_desc_granular": "--- うねりピッチ --- 音源の中でピッチがゆっくり上下する。wander_range=振幅(±半音)、lfo_speed=速さ(Hz、0.15=ゆっくり潮、0.4=息づかい、0.8=鳴き声)",
     "granular_pitch": {
-      "wander_range": 4.0,
+      "wander_range": 2.0,
       "lfo_speed": 0.4
     },
 
     "_desc_formant": "--- フォルマント（声の体格） --- 負=大きい存在(太い声道)、正=小さい存在(細い声道)。0なら無効。±3程度で自然、±6で異形",
-    "formant_shift_range": {"min": -6.0, "max": 5.0},
+    "formant_shift_range": {"min": -1.0, "max": 2.0},
 
     "_desc_scatter": "--- グレインスキャッター（声の断片化） --- 音の粒がランダムに散らばる。0=無効、0.3=微かな粒感、0.5=はっきり断片化、0.7=かなり崩れる",
     "grain_scatter": {
@@ -56,10 +56,10 @@
     "speed_range": {"min": 1.0, "max": 1.01},
 
     "_desc_rumble": "--- ランブル（低域の厚み） --- sub_oct_mix=1オクターブ下の層の音量、rumble_mix=合成ノイズの量、base_hz=ノイズの基本周波数、drive=歪みの量(0=クリーン,1=激しい)",
-    "rumble_sub_oct_mix": 0.55,
+    "rumble_sub_oct_mix": 0.25,
     "rumble_mix": 0.25,
     "rumble_base_hz": 55.0,
-    "rumble_drive": 0.55,
+    "rumble_drive": 0.05,
 
     "_desc_xover": "--- クロスオーバー --- この周波数を境にハイ(メインの声)とロー(ランブル)を分離合成する。上げると声が明瞭に、下げると低域が分離する",
     "rumble_xover_hz": 280.0
