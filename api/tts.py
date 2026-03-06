@@ -230,6 +230,67 @@ def ffmpeg_convert_for_tinyplay_with_rumble(
                     logger.warning(f"Failed to remove temporary file {tmp_file}: {e}")
 
 
+def convert_with_voice_fx(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
+    """
+    Consolidated voice processing: reads config and calls process_voice().
+
+    Replaces the old pattern of reading individual rumble params + calling
+    ffmpeg_convert_for_tinyplay_with_rumble(). Uses the v2 pipeline which
+    runs only 2 ffmpeg calls instead of 5-7.
+    """
+    from api.audio_effects import process_voice
+
+    # Pitch: center from random range, wander from granular config
+    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
+    center_pitch = random.uniform(pitch_range["min"], pitch_range["max"])
+
+    granular_cfg = audio_config.get("granular_pitch", {})
+    pitch_wander_range = granular_cfg.get("wander_range", 4.0)
+    pitch_lfo_speed = granular_cfg.get("lfo_speed", 0.4)
+
+    # Formant: random from range
+    formant_cfg = audio_config.get("formant_shift_range", {"min": 0.0, "max": 0.0})
+    formant_shift = random.uniform(formant_cfg["min"], formant_cfg["max"])
+
+    # Scatter: random from range
+    scatter_cfg = audio_config.get("grain_scatter", {})
+    scatter_range = scatter_cfg.get("amount_range", {"min": 0.0, "max": 0.0})
+    scatter_amount = random.uniform(scatter_range["min"], scatter_range["max"])
+
+    # Speed: random from range
+    speed_cfg = audio_config.get("speed_range", {"min": 1.0, "max": 1.0})
+    speed = random.uniform(speed_cfg["min"], speed_cfg["max"])
+
+    # Seed: random per utterance for unique character
+    seed = random.randint(0, 2**31)
+
+    logger.info(
+        f"[voice_fx] pitch={center_pitch:+.1f}st wander=±{pitch_wander_range:.1f}st "
+        f"formant={formant_shift:+.1f}st scatter={scatter_amount:.2f} speed={speed:.2f}x "
+        f"seed={seed}"
+    )
+
+    process_voice(
+        in_wav=raw_wav_path,
+        out_wav=final_wav_path,
+        center_pitch=center_pitch,
+        pitch_wander_range=pitch_wander_range,
+        pitch_lfo_speed=pitch_lfo_speed,
+        formant_shift=formant_shift,
+        sub_oct_mix=audio_config.get("rumble_sub_oct_mix", 0.55),
+        rumble_mix=audio_config.get("rumble_mix", 0.25),
+        rumble_base_hz=audio_config.get("rumble_base_hz", 55.0),
+        drive=audio_config.get("rumble_drive", 0.55),
+        xover_hz=audio_config.get("rumble_xover_hz", 280.0),
+        scatter_amount=scatter_amount,
+        speed=speed,
+        out_sample_rate=audio_config.get("sample_rate", 48000),
+        out_channels=audio_config.get("channels", 2),
+        out_sample_format=audio_config.get("sample_format", "s16"),
+        seed=seed,
+    )
+
+
 def tinyplay_play(wav_path: str, card: int = 0, device: int = 1, playback_device: str = "") -> None:
     """
     Play WAV file using aplay (ALSA) or tinyplay (legacy fallback).
@@ -329,20 +390,7 @@ class StackFlowTTSClient:
             if enable_ffmpeg:
                 logger.info("Converting WAV file with FFmpeg...")
                 if enable_rumble:
-                    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
-                    pitch_steps = random.uniform(pitch_range["min"], pitch_range["max"])
-                    sub_oct_mix = audio_config.get("rumble_sub_oct_mix", 0.55)
-                    rumble_mix = audio_config.get("rumble_mix", 0.25)
-                    rumble_base_hz = audio_config.get("rumble_base_hz", 55.0)
-                    drive = audio_config.get("rumble_drive", 0.55)
-                    xover_hz = audio_config.get("rumble_xover_hz", 280.0)
-
-                    ffmpeg_convert_for_tinyplay_with_rumble(
-                        raw_wav_path, final_wav_path,
-                        sample_rate, channels, sample_format,
-                        pitch_steps, sub_oct_mix, rumble_mix,
-                        rumble_base_hz, drive, xover_hz,
-                    )
+                    convert_with_voice_fx(raw_wav_path, final_wav_path, audio_config)
                 else:
                     ffmpeg_convert_for_tinyplay(
                         raw_wav_path, final_wav_path,
@@ -397,20 +445,7 @@ class StackFlowTTSClient:
             if enable_ffmpeg:
                 logger.info("Converting WAV file with FFmpeg...")
                 if enable_rumble:
-                    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
-                    pitch_steps = random.uniform(pitch_range["min"], pitch_range["max"])
-                    sub_oct_mix = audio_config.get("rumble_sub_oct_mix", 0.55)
-                    rumble_mix = audio_config.get("rumble_mix", 0.25)
-                    rumble_base_hz = audio_config.get("rumble_base_hz", 55.0)
-                    drive = audio_config.get("rumble_drive", 0.55)
-                    xover_hz = audio_config.get("rumble_xover_hz", 280.0)
-
-                    ffmpeg_convert_for_tinyplay_with_rumble(
-                        raw_wav_path, final_wav_path,
-                        sample_rate, channels, sample_format,
-                        pitch_steps, sub_oct_mix, rumble_mix,
-                        rumble_base_hz, drive, xover_hz,
-                    )
+                    convert_with_voice_fx(raw_wav_path, final_wav_path, audio_config)
                 else:
                     ffmpeg_convert_for_tinyplay(
                         raw_wav_path, final_wav_path,
@@ -471,7 +506,7 @@ class StackFlowTTSClient:
                     logger.error(f"[RAW-AUDIO] Playback failed: {e.stderr}")
                     raise RuntimeError(f"[RAW-AUDIO] Playback failed: {e.stderr}")
                 return
-            
+
             playback_device = audio_config.get("playback_device", "")
 
             if playback_device:
@@ -548,28 +583,7 @@ class StackFlowTTSClient:
             if enable_ffmpeg:
                 logger.info("Converting WAV file with FFmpeg...")
                 if enable_rumble:
-                    # Get advanced rumble parameters from config
-                    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
-                    pitch_steps = random.uniform(pitch_range["min"], pitch_range["max"])
-                    sub_oct_mix = audio_config.get("rumble_sub_oct_mix", 0.55)
-                    rumble_mix = audio_config.get("rumble_mix", 0.25)
-                    rumble_base_hz = audio_config.get("rumble_base_hz", 55.0)
-                    drive = audio_config.get("rumble_drive", 0.55)
-                    xover_hz = audio_config.get("rumble_xover_hz", 280.0)
-
-                    ffmpeg_convert_for_tinyplay_with_rumble(
-                        raw_wav_path,
-                        final_wav_path,
-                        sample_rate,
-                        channels,
-                        sample_format,
-                        pitch_steps,
-                        sub_oct_mix,
-                        rumble_mix,
-                        rumble_base_hz,
-                        drive,
-                        xover_hz,
-                    )
+                    convert_with_voice_fx(raw_wav_path, final_wav_path, audio_config)
                 else:
                     ffmpeg_convert_for_tinyplay(
                         raw_wav_path,
