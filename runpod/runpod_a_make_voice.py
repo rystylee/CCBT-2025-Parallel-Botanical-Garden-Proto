@@ -1,28 +1,51 @@
 #!/usr/bin/env python3
+"""RunPod ワーカー: MeloTTS → Seed-VC 音声変換パイプライン
+
+RunPod 上で動作。osc/ ディレクトリに到着した JSON ファイルを監視し、
+テキスト → MeloTTS(WAV生成) → Seed-VC(声質変換) のパイプラインを実行する。
+
+環境変数で設定を上書き可能:
+    OSC_JSON_DIR   : JSON監視ディレクトリ (default: /workspace/seed-vc/osc)
+    DRIVE_PATH     : Seed-VC リポジトリパス (default: /workspace/seed-vc)
+    TTS_DIR        : MeloTTS出力先 (default: /workspace/seed-vc/tts_out)
+    OUT_DIR        : 最終出力先 (default: /workspace/seed-vc/outputs)
+    TARGET_AUDIO   : 声質変換ターゲット音声 (default: /workspace/nainiku.mp3)
+    INFER_SCRIPT   : inference_v2.py のパス
+    POLL_SEC       : ポーリング間隔秒 (default: 0.2)
+    BATCH_MODE     : 1=バッチ処理, 0=1件ずつ (default: 1)
+"""
+
 import json
 import os
 import re
+import sys
 import time
 import shutil
 import hashlib
 import subprocess
 from pathlib import Path
+from datetime import datetime
 
-# ===== 設定（必要なら環境変数で上書き）=====
+# ===== 設定 =====
 OSC_JSON_DIR = Path(os.getenv("OSC_JSON_DIR", "/workspace/seed-vc/osc"))
 DRIVE_PATH   = Path(os.getenv("DRIVE_PATH", "/workspace/seed-vc"))
 
 TTS_DIR      = Path(os.getenv("TTS_DIR", str(DRIVE_PATH / "tts_out")))
 OUT_DIR      = Path(os.getenv("OUT_DIR", str(DRIVE_PATH / "outputs")))
 
-# drive_path="/workspace/seed-vc" なら "../nainiku.mp3" = "/workspace/nainiku.mp3" の想定
-TARGET_AUDIO = Path(os.getenv("TARGET_AUDIO", str((DRIVE_PATH / "../nainiku.mp3").resolve())))
+TARGET_AUDIO = Path(os.getenv("TARGET_AUDIO", "/workspace/audio/nainiku.mp3"))
 INFER_SCRIPT = Path(os.getenv("INFER_SCRIPT", str(DRIVE_PATH / "inference_v2.py")))
 
 POLL_SEC     = float(os.getenv("POLL_SEC", "0.2"))
+BATCH_MODE   = os.getenv("BATCH_MODE", "1") == "1"
 
 PROCESSED_DIR = OSC_JSON_DIR / "processed"
 FAILED_DIR    = OSC_JSON_DIR / "failed"
+
+
+def log(msg: str):
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"[{ts}] {msg}", flush=True)
 
 
 def ensure_dirs():
@@ -31,7 +54,7 @@ def ensure_dirs():
 
 
 def wait_file_stable(p: Path, checks: int = 6, interval: float = 0.2) -> bool:
-    """scp転送中などの途中状態を避けるため、サイズが連続で変わらないことを確認"""
+    """SCP転送中の途中ファイルを回避: サイズが安定するまで待つ"""
     last = -1
     stable = 0
     for _ in range(checks):
@@ -51,26 +74,38 @@ def wait_file_stable(p: Path, checks: int = 6, interval: float = 0.2) -> bool:
 
 
 def safe_basename(text: str, maxlen: int = 40) -> str:
-    """
-    「入力テキストの名前を使用」しつつ、ファイル名として危険な文字を潰して
-    さらに衝突回避のためハッシュを付ける
-    """
+    """テキストからファイル名安全なベース名を生成"""
     t = text.strip()
     t = re.sub(r"\s+", "_", t)
-    t = re.sub(r'[\\/:*?"<>|]+', "_", t)          # Windows系禁止文字も潰す
-    t = re.sub(r"[\x00-\x1f]+", "_", t)           # 制御文字
+    t = re.sub(r'[\\/:*?"<>|]+', "_", t)
+    t = re.sub(r"[\x00-\x1f]+", "_", t)
     t = t[:maxlen] if t else "text"
     h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
     return f"{t}_{h}"
 
 
+def extract_text(payload: dict) -> str:
+    text = (payload.get("text") or "").strip()
+    if not text:
+        args = payload.get("args") or []
+        text = " ".join(str(a) for a in args).strip()
+    return text
+
+
 def run_melo(text: str, out_wav: Path):
+    """MeloTTS でテキスト→WAV生成"""
     out_wav.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["melo", text, str(out_wav), "-l", "JP"]
-    subprocess.run(cmd, check=True)
+    log(f"MeloTTS: {text[:60]}... → {out_wav.name}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"MeloTTS failed: {result.stderr[:200]}")
+    if not out_wav.exists() or out_wav.stat().st_size == 0:
+        raise RuntimeError(f"MeloTTS produced empty/no file: {out_wav}")
 
 
 def run_infer(source_wav: Path):
+    """Seed-VC で声質変換"""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     cmd = [
         "python", str(INFER_SCRIPT),
@@ -87,18 +122,23 @@ def run_infer(source_wav: Path):
         "--repetition-penalty", "1.0",
         "--convert-style", "False",
     ]
-    # inference_v2.py が相対パス前提のことがあるので cwd を DRIVE_PATH に固定
-    subprocess.run(cmd, check=True, cwd=str(DRIVE_PATH))
+    log(f"Seed-VC: {source_wav.name} → {OUT_DIR}")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(DRIVE_PATH))
+    if result.returncode != 0:
+        raise RuntimeError(f"Seed-VC failed: {result.stderr[:300]}")
 
-def extract_text(payload: dict) -> str:
-    text = (payload.get("text") or "").strip()
-    if not text:
-        args = payload.get("args") or []
-        text = " ".join(str(a) for a in args).strip()
-    return text
+
+def move_safe(src: Path, dst_dir: Path):
+    """ファイルを安全に移動 (同名ファイル存在時はタイムスタンプ付加)"""
+    dst = dst_dir / src.name
+    if dst.exists():
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dst = dst_dir / f"{src.stem}_{ts}{src.suffix}"
+    shutil.move(str(src), str(dst))
+
 
 def process_batch(json_paths: list[Path]):
-    # scp転送中などの途中状態は除外
+    """複数JSONをまとめて処理"""
     stable_paths = [p for p in json_paths if wait_file_stable(p)]
     if not stable_paths:
         return
@@ -107,109 +147,158 @@ def process_batch(json_paths: list[Path]):
     ok_paths: list[Path] = []
     bad_paths: list[Path] = []
 
-    # 各jsonからtext抽出（壊れてる/空は failed に分離）
     for jp in stable_paths:
         try:
             payload = json.loads(jp.read_text(encoding="utf-8"))
             t = extract_text(payload)
             if not t:
-                raise ValueError("No text in json")
+                raise ValueError("空テキスト")
             texts.append(t)
             ok_paths.append(jp)
         except Exception as e:
-            print(f"[A] FAIL(json parse/text): {jp.name}  err={e}")
+            log(f"❌ JSON解析失敗: {jp.name} → {e}")
             bad_paths.append(jp)
 
-    # 失敗分は先にfailedへ
     for jp in bad_paths:
         try:
-            shutil.move(str(jp), str(FAILED_DIR / jp.name))
+            move_safe(jp, FAILED_DIR)
         except Exception:
             pass
 
     if not texts:
         return
 
-    # ★ここが今回の変更点：全textを統合してmeloへ
-    merged_text = "\n".join(texts)   # 区切りはお好みで：" " や "。" でもOK
-
+    merged_text = "\n".join(texts)
     base = safe_basename(merged_text)
     tts_wav = TTS_DIR / f"{base}.wav"
 
     try:
-        print(f"[A] melo(batch {len(texts)}): -> {tts_wav}")
+        t0 = time.time()
         run_melo(merged_text, tts_wav)
+        t1 = time.time()
+        log(f"MeloTTS完了 ({t1 - t0:.1f}s)")
 
-        print(f"[A] infer: {tts_wav} -> {OUT_DIR} (target={TARGET_AUDIO})")
         run_infer(tts_wav)
+        t2 = time.time()
+        log(f"Seed-VC完了 ({t2 - t1:.1f}s)")
 
-        # 成功した分をprocessedへ（ok_pathsのみ）
         for jp in ok_paths:
-            shutil.move(str(jp), str(PROCESSED_DIR / jp.name))
-        print(f"[A] DONE(batch): {len(ok_paths)} files")
+            move_safe(jp, PROCESSED_DIR)
+
+        log(f"✅ バッチ完了: {len(ok_paths)}件 (合計 {t2 - t0:.1f}s)")
 
     except Exception as e:
-        print(f"[A] FAIL(batch run): err={e}")
-        # バッチ実行自体が失敗したら、ok_pathsもまとめてfailedへ
+        log(f"❌ パイプライン失敗: {e}")
         for jp in ok_paths:
             try:
-                shutil.move(str(jp), str(FAILED_DIR / jp.name))
+                move_safe(jp, FAILED_DIR)
             except Exception:
                 pass
 
+    # TTS中間ファイル削除
+    if tts_wav.exists():
+        try:
+            tts_wav.unlink()
+        except Exception:
+            pass
+
 
 def process_one(json_path: Path):
+    """1件ずつ処理"""
     if not wait_file_stable(json_path):
         return
 
     try:
         payload = json.loads(json_path.read_text(encoding="utf-8"))
-        text = (payload.get("text") or "").strip()
+        text = extract_text(payload)
         if not text:
-            # argsから復元する保険
-            args = payload.get("args") or []
-            text = " ".join(str(a) for a in args).strip()
-
-        if not text:
-            raise ValueError("No text in json")
+            raise ValueError("空テキスト")
 
         base = safe_basename(text)
         tts_wav = TTS_DIR / f"{base}.wav"
 
-        print(f"[A] melo: {text} -> {tts_wav}")
+        t0 = time.time()
         run_melo(text, tts_wav)
-
-        print(f"[A] infer: {tts_wav} -> {OUT_DIR} (target={TARGET_AUDIO})")
         run_infer(tts_wav)
+        elapsed = time.time() - t0
 
-        shutil.move(str(json_path), str(PROCESSED_DIR / json_path.name))
-        print(f"[A] DONE: {json_path.name}")
+        move_safe(json_path, PROCESSED_DIR)
+        log(f"✅ 完了: {json_path.name} ({elapsed:.1f}s)")
+
+        if tts_wav.exists():
+            tts_wav.unlink()
 
     except Exception as e:
-        print(f"[A] FAIL: {json_path.name}  err={e}")
+        log(f"❌ 失敗: {json_path.name} → {e}")
         try:
-            shutil.move(str(json_path), str(FAILED_DIR / json_path.name))
+            move_safe(json_path, FAILED_DIR)
         except Exception:
             pass
 
 
+def verify_prerequisites():
+    """起動前チェック"""
+    errors = []
+
+    # melo コマンド
+    r = subprocess.run(["which", "melo"], capture_output=True, text=True)
+    if r.returncode != 0:
+        errors.append("melo コマンドが見つかりません (MeloTTS未インストール)")
+
+    # inference_v2.py
+    if not INFER_SCRIPT.exists():
+        errors.append(f"inference_v2.py が見つかりません: {INFER_SCRIPT}")
+
+    # target audio
+    if not TARGET_AUDIO.exists():
+        errors.append(f"ターゲット音声が見つかりません: {TARGET_AUDIO}")
+
+    if errors:
+        log("=" * 50)
+        log("⚠️  起動前チェック失敗:")
+        for e in errors:
+            log(f"  - {e}")
+        log("=" * 50)
+        return False
+
+    return True
+
+
 def main():
     ensure_dirs()
-    print(f"[A] watch json: {OSC_JSON_DIR}")
-    print(f"[A] drive_path: {DRIVE_PATH}")
-    print(f"[A] target_audio: {TARGET_AUDIO}")
-    print(f"[A] outputs: {OUT_DIR}")
+
+    log("=" * 50)
+    log("RunPod Voice Worker 起動")
+    log(f"  JSON監視: {OSC_JSON_DIR}")
+    log(f"  TTS出力:  {TTS_DIR}")
+    log(f"  VC出力:   {OUT_DIR}")
+    log(f"  ターゲット: {TARGET_AUDIO}")
+    log(f"  モード:    {'バッチ' if BATCH_MODE else '1件ずつ'}")
+    log(f"  ポーリング: {POLL_SEC}s")
+    log("=" * 50)
+
+    if not verify_prerequisites():
+        log("前提条件を満たしていません。runpod_manager.py setup を実行してください。")
+        sys.exit(1)
+
+    log("ファイル監視開始...")
 
     while True:
-        batch = sorted(OSC_JSON_DIR.glob("*.json"))
-        if batch:
-            process_batch(batch)
-        time.sleep(POLL_SEC)
+        try:
+            batch = sorted(OSC_JSON_DIR.glob("*.json"))
+            if batch:
+                if BATCH_MODE:
+                    process_batch(batch)
+                else:
+                    for jp in batch:
+                        process_one(jp)
+        except KeyboardInterrupt:
+            log("中断 (Ctrl+C)")
+            break
+        except Exception as e:
+            log(f"❌ 予期しないエラー: {e}")
 
-    # while True:
-    #     for jp in sorted(OSC_JSON_DIR.glob("*.json")):
-    #         process_one(jp)
-    #     time.sleep(POLL_SEC)
+        time.sleep(POLL_SEC)
 
 
 if __name__ == "__main__":

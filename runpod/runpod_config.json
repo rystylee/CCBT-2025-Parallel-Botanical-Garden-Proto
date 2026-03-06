@@ -1,0 +1,46 @@
+{
+  "_desc": "=== RunPod リモート処理 共通設定 ===",
+
+  "ssh": {
+    "user": "dmw81eq7mnro4b-644113b7",
+    "host": "ssh.runpod.io",
+    "port": 22,
+    "key": "~/.ssh/id_ed25519",
+    "connect_timeout": 10,
+    "options": [
+      "-o", "StrictHostKeyChecking=accept-new",
+      "-o", "ServerAliveInterval=30",
+      "-o", "ServerAliveCountMax=3"
+    ]
+  },
+
+  "runpod": {
+    "_desc": "RunPod上のパス構成",
+    "workspace": "/workspace",
+    "seed_vc_dir": "/workspace/seed-vc",
+    "melo_dir": "/workspace/MeloTTS",
+    "osc_json_dir": "/workspace/seed-vc/osc",
+    "tts_out_dir": "/workspace/seed-vc/tts_out",
+    "vc_out_dir": "/workspace/seed-vc/outputs",
+    "audio_dir": "/workspace/audio",
+    "target_audio": "/workspace/audio/nainiku.mp3",
+    "worker_script": "/workspace/seed-vc/runpod_a_make_voice.py"
+  },
+
+  "ubuntu_sender": {
+    "_desc": "Ubuntu(10.0.0.200)側 OSC受信→RunPod送信",
+    "osc_listen_ip": "0.0.0.0",
+    "osc_listen_port": 8000,
+    "osc_address": "/mixer"
+  },
+
+  "ubuntu_puller": {
+    "_desc": "Ubuntu側 RunPod→ローカルへの結果取得",
+    "local_output_dir": "./runpod_outputs",
+    "poll_interval_sec": 3.0,
+    "stable_sec": 2.0,
+    "audio_extensions": [".wav"],
+    "remove_remote_after_pull": true,
+    "play_on_pull": false
+  }
+}
