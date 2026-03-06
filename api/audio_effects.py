@@ -462,25 +462,46 @@ def process_voice(
     # So we split into separate ffmpeg invocations.
 
     do_formant = abs(formant_shift) > 0.5 and ffmpeg_has_filter("rubberband")
-    
+
     if do_formant:
         tmp_formant_pass1 = str(WORKDIR / "_v2_formant_p1.wav")
         fwd_ratio = 2 ** (formant_shift / 12.0)
         inv_ratio = 2 ** (-formant_shift / 12.0)
 
-        logger.info(...)
+        logger.info(
+            f"[process_voice] Step 1/3: 16kHz mono + formant({formant_shift:+.1f}st) [2 ffmpeg calls]"
+        )
 
         # Pass 1: 16kHz mono + pitch shift by formant amount
-        sh(["ffmpeg", ..., "-af", f"rubberband=pitch={fwd_ratio:.6f}:tempo=1",
-            ..., str(tmp_formant_pass1)])
+        sh([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(in_wav), "-ac", "1", "-ar", str(sr),
+            "-af", f"rubberband=pitch={fwd_ratio:.6f}:tempo=1",
+            "-sample_fmt", "s16", str(tmp_formant_pass1),
+        ])
 
         # Pass 2: pitch back, formant=preserved (separate process)
-        sh(["ffmpeg", ..., "-af", f"rubberband=pitch={inv_ratio:.6f}:tempo=1:formant=preserved",
-            ..., str(tmp_16k)])
+        sh([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(tmp_formant_pass1), "-ac", "1", "-ar", str(sr),
+            "-af", f"rubberband=pitch={inv_ratio:.6f}:tempo=1:formant=preserved",
+            "-sample_fmt", "s16", str(tmp_16k),
+        ])
+
+        # Cleanup pass 1 temp
+        try:
+            Path(tmp_formant_pass1).unlink(missing_ok=True)
+        except Exception:
+            pass
 
     else:
         # No formant: single ffmpeg for format conversion
-        sh(["ffmpeg", ..., str(tmp_16k)])
+        logger.info("[process_voice] Step 1/3: 16kHz mono")
+        sh([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(in_wav), "-ac", "1", "-ar", str(sr),
+            "-sample_fmt", "s16", str(tmp_16k),
+        ])
 
     # ---- STEP 2: numpy — granular pitch + rumble + scatter ----
 
