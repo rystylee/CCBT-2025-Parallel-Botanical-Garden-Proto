@@ -36,7 +36,7 @@
     "temp_wav_dir": "./tmp",
 
     "_desc_pitch": "--- ピッチ（音程） --- 毎回この範囲からランダムに中心値が決まる。負の値=低い声。-9で人の声感が残る、-16でほぼ判別不能",
-    "rumble_pitch_steps_range": {"min": -12.0, "max": -1.0},
+    "rumble_pitch_steps_range": {"min": -11.0, "max": -1.0},
 
     "_desc_granular": "--- うねりピッチ --- 音源の中でピッチがゆっくり上下する。wander_range=振幅(±半音)、lfo_speed=速さ(Hz、0.15=ゆっくり潮、0.4=息づかい、0.8=鳴き声)",
     "granular_pitch": {
