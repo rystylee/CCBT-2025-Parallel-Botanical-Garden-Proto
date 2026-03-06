@@ -45,11 +45,11 @@ TMUX_CONF = {
     },
     "llm": {
         "session": "bi_llm",
-        "cmd": f"cd {GIT_DIR} && git stash; git pull; chmod +x scripts/check_llm.py && ./scripts/check_llm.py",
+        "cmd": f"cd {GIT_DIR} && git stash; git pull; uv run python scripts/check_llm.py",
     },
     "tts": {
         "session": "bi_tts",
-        "cmd": f"cd {GIT_DIR} && git stash; git pull; chmod +x scripts/check_tts.py && ./scripts/check_tts.py",
+        "cmd": f"cd {GIT_DIR} && git stash; git pull; uv run python scripts/check_tts.py",
     },
 }
 SEND_SCRIPT = "/home/yuma/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/scripts/send_bi_input.py"
