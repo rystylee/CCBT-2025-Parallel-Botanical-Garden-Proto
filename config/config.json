@@ -98,9 +98,9 @@
     },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "شما یک شاعر هستید. همیشه اشعار کوتاه به زبان فارسی می‌سازید.",
-      "translation_prompt": "متن وارد شده را به زبان فارسی ترجمه کنید. لطفاً فقط نتیجه ترجمه را نمایش دهید. input: ",
-      "instruction_prompt": "لطفاً با ۲ تا ۳ کلمه شاعرانه به زبان فارسی ادامه‌ای برای متن وارد شده بسازید. فقط شعر را بسازید، بدون جملات اضافی. input: "
+      "system_prompt": "You are a poet. You always generate short poems.",
+      "translation_prompt": "Please translate the input text into English. Output only the translated results. input: ",
+      "instruction_prompt": "Please generate a continuation of the input text Only generate the poem. input: "
     },
     "zh": {
       "model": "qwen2.5-0.5B-prefill-20e",
