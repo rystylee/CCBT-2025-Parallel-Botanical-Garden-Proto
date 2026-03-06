@@ -98,9 +98,9 @@
     },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "أنت شاعر. تقوم دائمًا بإنشاء قصائد قصيرة باللغة العربية.",
-      "translation_prompt": "ترجم النص المدخل إلى اللغة العربية. يرجى عرض نتيجة الترجمة فقط. input: ",
-      "instruction_prompt": "يرجى إنشاء تكملة للنص المدخل بـ 2-3 كلمات شعرية باللغة العربية. أنشئ القصيدة فقط، بدون جمل إضافية. input: "
+      "system_prompt": "Tu es poeta. Semper brevia carmina Latine generas.",
+      "translation_prompt": "Textum insertum in Latinam linguam converte. Solum conversionis resultatum ostende. input: ",
+      "instruction_prompt": "Quaeso, continuationem textus inserti cum 2-3 verbis poeticis Latine genera. Solum carmen genera, sine sententiis additis. input: "
     },
     "zh": {
       "model": "qwen2.5-0.5B-prefill-20e",
