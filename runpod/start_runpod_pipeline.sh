@@ -15,6 +15,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# venv 自動 activate
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+elif [ -z "$VIRTUAL_ENV" ]; then
+    error "venv が見つかりません。先に bash setup_ubuntu_venv.sh を実行してください。"
+    exit 1
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

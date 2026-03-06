@@ -36,7 +36,15 @@ M5Stack (10.0.0.1~100)          Ubuntu (10.0.0.200)              RunPod (GPU)
 ssh dmw81eq7mnro4b-644113b7@ssh.runpod.io -i ~/.ssh/id_ed25519
 ```
 
-### 2. RunPod環境構築 (初回のみ)
+### 2. Ubuntu 側の環境構築
+
+```bash
+cd runpod/
+bash setup_ubuntu_venv.sh
+source .venv/bin/activate
+```
+
+### 3. RunPod環境構築 (初回のみ)
 
 ```bash
 # MeloTTS + Seed-VC をインストール
@@ -47,7 +55,7 @@ scp -i ~/.ssh/id_ed25519 audio/nainiku.mp3 \
     dmw81eq7mnro4b-644113b7@ssh.runpod.io:/workspace/audio/nainiku.mp3
 ```
 
-### 3. 接続確認
+### 4. 接続確認
 
 ```bash
 python3 runpod_manager.py check
@@ -121,7 +129,7 @@ c.send_message('/mixer', 'これはテストです。植物の知性は静かに
 
 Ubuntu側:
 ```bash
-pip install python-osc
+bash setup_ubuntu_venv.sh   # venv作成 + python-osc インストール
 ```
 
 RunPod側 (runpod_manager.py setup で自動インストール):
