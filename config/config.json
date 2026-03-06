@@ -32,7 +32,7 @@
     "channels": 2,
     "sample_format": "s16",
     "enable_ffmpeg_convert": true,
-    "enable_rumble_effect": false,
+    "enable_rumble_effect": true,
     "temp_wav_dir": "./tmp",
 
     "_desc_pitch": "--- ピッチ（音程） --- 毎回この範囲からランダムに中心値が決まる。負の値=低い声。-9で人の声感が残る、-16でほぼ判別不能",
