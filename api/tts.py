@@ -387,6 +387,17 @@ class StackFlowTTSClient:
             logger.info(f"Generating WAV file: {text[:50]}...")
             tts_generate_wav(text, self.model, raw_wav_path)
 
+        except Exception as e:
+            logger.error(f"WAV generation failed: {e}")
+            for p in [raw_wav_path, final_wav_path]:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+            return None
+
+        try:
             if enable_ffmpeg:
                 logger.info("Converting WAV file with FFmpeg...")
                 if enable_rumble:
@@ -404,7 +415,7 @@ class StackFlowTTSClient:
                 return raw_wav_path
 
         except Exception as e:
-            logger.error(f"WAV preparation failed: {e}")
+            logger.error(f"WAV converting failed: {e}")
             for p in [raw_wav_path, final_wav_path]:
                 if os.path.exists(p):
                     try:
