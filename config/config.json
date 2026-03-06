@@ -36,7 +36,7 @@
     "temp_wav_dir": "./tmp",
 
     "_desc_pitch": "--- ピッチ（音程） --- 毎回この範囲からランダムに中心値が決まる。負の値=低い声。-9で人の声感が残る、-16でほぼ判別不能",
-    "rumble_pitch_steps_range": {"min": -5.0, "max": 8.0},
+    "rumble_pitch_steps_range": {"min": -4.0, "max": 6.0},
 
     "_desc_granular": "--- うねりピッチ --- 音源の中でピッチがゆっくり上下する。wander_range=振幅(±半音)、lfo_speed=速さ(Hz、0.15=ゆっくり潮、0.4=息づかい、0.8=鳴き声)",
     "granular_pitch": {
@@ -45,7 +45,7 @@
     },
 
     "_desc_formant": "--- フォルマント（声の体格） --- 負=大きい存在(太い声道)、正=小さい存在(細い声道)。0なら無効。±3程度で自然、±6で異形",
-    "formant_shift_range": {"min": -2.0, "max": 5.0},
+    "formant_shift_range": {"min": -6.0, "max": 5.0},
 
     "_desc_scatter": "--- グレインスキャッター（声の断片化） --- 音の粒がランダムに散らばる。0=無効、0.3=微かな粒感、0.5=はっきり断片化、0.7=かなり崩れる",
     "grain_scatter": {
@@ -98,9 +98,9 @@
     },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "You are a poet. You always generate short poems.",
-      "translation_prompt": "Please translate the input text into English. Output only the translated results. input: ",
-      "instruction_prompt": "Please generate a continuation of the input text Only generate the poem. input: "
+      "system_prompt": "あなたは詩人です。常に短い詩を日本語で生成します。前置きや説明は一切書かず、詩の本文のみを出力してください。",
+      "translation_prompt": "入力テキストを日本語に翻訳してください。翻訳した結果のみを出力してください。input: ",
+      "instruction_prompt": "詩の続きを日本語で書いてください。詩の本文のみを出力してください。前置き・説明・返答は不要です。input: "
     },
     "zh": {
       "model": "qwen2.5-0.5B-prefill-20e",
