@@ -455,35 +455,32 @@ def process_voice(
     tmp_16k = str(WORKDIR / "_v2_16k.wav")
     tmp_numpy_out = str(WORKDIR / "_v2_numpy_out.wav")
 
-    # ---- STEP 1: ffmpeg #1 — input → 16kHz mono (+ formant) ----
+    # ---- STEP 1: ffmpeg — input → 16kHz mono (+ formant) ----
+    #
+    # IMPORTANT: M5Stack's librubberband crashes (SIGABRT / Bad converter number)
+    # when two rubberband filters are chained in a single ffmpeg call.
+    # So we split into separate ffmpeg invocations.
 
-    af_parts = []
-
-    # Formant shift via rubberband 2-pass:
-    #   pitch by formant_shift, then pitch back with formant=preserved
-    #   Net result: formant moves, pitch stays unchanged
-    if abs(formant_shift) > 0.5 and ffmpeg_has_filter("rubberband"):
+    do_formant = abs(formant_shift) > 0.5 and ffmpeg_has_filter("rubberband")
+    
+    if do_formant:
+        tmp_formant_pass1 = str(WORKDIR / "_v2_formant_p1.wav")
         fwd_ratio = 2 ** (formant_shift / 12.0)
         inv_ratio = 2 ** (-formant_shift / 12.0)
-        af_parts.append(f"rubberband=pitch={fwd_ratio:.6f}:tempo=1")
-        af_parts.append(
-            f"rubberband=pitch={inv_ratio:.6f}:tempo=1:formant=preserved"
-        )
-        logger.info(f"[process_voice] Formant shift: {formant_shift:+.1f}st")
 
-    cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-i", str(in_wav), "-ac", "1", "-ar", str(sr),
-    ]
-    if af_parts:
-        cmd += ["-af", ",".join(af_parts)]
-    cmd += ["-sample_fmt", "s16", str(tmp_16k)]
+        logger.info(...)
 
-    logger.info(
-        "[process_voice] Step 1/3: 16kHz mono"
-        + (f" + formant({formant_shift:+.1f}st)" if af_parts else "")
-    )
-    sh(cmd)
+        # Pass 1: 16kHz mono + pitch shift by formant amount
+        sh(["ffmpeg", ..., "-af", f"rubberband=pitch={fwd_ratio:.6f}:tempo=1",
+            ..., str(tmp_formant_pass1)])
+
+        # Pass 2: pitch back, formant=preserved (separate process)
+        sh(["ffmpeg", ..., "-af", f"rubberband=pitch={inv_ratio:.6f}:tempo=1:formant=preserved",
+            ..., str(tmp_16k)])
+
+    else:
+        # No formant: single ffmpeg for format conversion
+        sh(["ffmpeg", ..., str(tmp_16k)])
 
     # ---- STEP 2: numpy — granular pitch + rumble + scatter ----
 
