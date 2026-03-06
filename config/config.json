@@ -98,9 +98,9 @@
     },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "Tu es poeta. Semper brevia carmina Latine generas.",
-      "translation_prompt": "Textum insertum in Latinam linguam converte. Solum conversionis resultatum ostende. input: ",
-      "instruction_prompt": "Quaeso, continuationem textus inserti cum 2-3 verbis poeticis Latine genera. Solum carmen genera, sine sententiis additis. input: "
+      "system_prompt": "You are a poet. You always generate short poems.",
+      "translation_prompt": "Please translate the input text into English. Output only the translated results. input: ",
+      "instruction_prompt": "Please generate a continuation of the input text Only generate the poem. input: "
     },
     "zh": {
       "model": "qwen2.5-0.5B-prefill-20e",
