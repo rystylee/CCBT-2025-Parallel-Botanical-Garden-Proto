@@ -53,7 +53,7 @@
     },
 
     "_desc_speed": "--- 再生速度 --- 1.0=等速。0.7=ゆっくり(尺が1.4倍に伸びる)、1.1=やや速い。言葉の聞き取りやすさに直結",
-    "speed_range": {"min": 0.7, "max": 1.1},
+    "speed_range": {"min": 1.0, "max": 1.01},
 
     "_desc_rumble": "--- ランブル（低域の厚み） --- sub_oct_mix=1オクターブ下の層の音量、rumble_mix=合成ノイズの量、base_hz=ノイズの基本周波数、drive=歪みの量(0=クリーン,1=激しい)",
     "rumble_sub_oct_mix": 0.55,
