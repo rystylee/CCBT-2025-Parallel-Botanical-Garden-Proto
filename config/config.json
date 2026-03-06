@@ -36,7 +36,7 @@
     "temp_wav_dir": "./tmp",
 
     "_desc_pitch": "--- ピッチ（音程） --- 毎回この範囲からランダムに中心値が決まる。負の値=低い声。-9で人の声感が残る、-16でほぼ判別不能",
-    "rumble_pitch_steps_range": {"min": -4.0, "max": 4.0},
+    "rumble_pitch_steps_range": {"min": -5.0, "max": 8.0},
 
     "_desc_granular": "--- うねりピッチ --- 音源の中でピッチがゆっくり上下する。wander_range=振幅(±半音)、lfo_speed=速さ(Hz、0.15=ゆっくり潮、0.4=息づかい、0.8=鳴き声)",
     "granular_pitch": {
@@ -45,7 +45,7 @@
     },
 
     "_desc_formant": "--- フォルマント（声の体格） --- 負=大きい存在(太い声道)、正=小さい存在(細い声道)。0なら無効。±3程度で自然、±6で異形",
-    "formant_shift_range": {"min": -6.0, "max": 5.0},
+    "formant_shift_range": {"min": -2.0, "max": 5.0},
 
     "_desc_scatter": "--- グレインスキャッター（声の断片化） --- 音の粒がランダムに散らばる。0=無効、0.3=微かな粒感、0.5=はっきり断片化、0.7=かなり崩れる",
     "grain_scatter": {
