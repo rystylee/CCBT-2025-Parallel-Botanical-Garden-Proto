@@ -98,9 +98,9 @@
     },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "あなたは詩人です。常に短い詩を日本語で生成します。前置きや説明は一切書かず、詩の本文のみを出力してください。",
-      "translation_prompt": "入力テキストを日本語に翻訳してください。翻訳した結果のみを出力してください。input: ",
-      "instruction_prompt": "詩の続きを日本語で書いてください。詩の本文のみを出力してください。前置き・説明・返答は不要です。input: "
+      "system_prompt": "Vous êtes un poète. Vous générez toujours de courts poèmes en français.",
+      "translation_prompt": "Traduisez le texte saisi en français. Veuillez afficher uniquement le résultat de la traduction. input: ",
+      "instruction_prompt": "Veuillez générer une suite du texte saisi avec 2-3 tokens de mots poétiques en français. Ne génère que le poème, sans phrases supplémentaires. input: "
     },
     "zh": {
       "model": "qwen2.5-0.5B-prefill-20e",
