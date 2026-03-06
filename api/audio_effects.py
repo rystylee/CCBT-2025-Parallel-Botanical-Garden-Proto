@@ -457,30 +457,32 @@ def process_voice(
 
     # ---- STEP 1: ffmpeg — input → 16kHz mono (+ formant) ----
     #
-    # IMPORTANT: M5Stack's librubberband crashes (SIGABRT / Bad converter number)
-    # when two rubberband filters are chained in a single ffmpeg call.
-    # So we split into separate ffmpeg invocations.
+    # Formant shift via rubberband 2-pass (if rubberband works at runtime):
+    #   pass 1: pitch by formant_shift
+    #   pass 2: pitch back with formant=preserved → net: formant moves, pitch stays
+    #
+    # Fallback (M5Stack etc.): approximate formant with EQ filters.
+    #   formant < 0 (dark):  boost low-mids, cut upper-mids
+    #   formant > 0 (bright): cut low-mids, boost upper-mids
 
-    do_formant = abs(formant_shift) > 0.5 and ffmpeg_has_filter("rubberband")
+    do_formant = abs(formant_shift) > 0.5
 
-    if do_formant:
+    if do_formant and RUBBERBAND_WORKS:
+        # --- Rubberband 2-pass (true formant shift) ---
         tmp_formant_pass1 = str(WORKDIR / "_v2_formant_p1.wav")
         fwd_ratio = 2 ** (formant_shift / 12.0)
         inv_ratio = 2 ** (-formant_shift / 12.0)
 
         logger.info(
-            f"[process_voice] Step 1/3: 16kHz mono + formant({formant_shift:+.1f}st) [2 ffmpeg calls]"
+            f"[process_voice] Step 1/3: 16kHz mono + formant({formant_shift:+.1f}st) [rubberband 2-pass]"
         )
 
-        # Pass 1: 16kHz mono + pitch shift by formant amount
         sh([
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(in_wav), "-ac", "1", "-ar", str(sr),
             "-af", f"rubberband=pitch={fwd_ratio:.6f}:tempo=1",
             "-sample_fmt", "s16", str(tmp_formant_pass1),
         ])
-
-        # Pass 2: pitch back, formant=preserved (separate process)
         sh([
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(tmp_formant_pass1), "-ac", "1", "-ar", str(sr),
@@ -488,14 +490,39 @@ def process_voice(
             "-sample_fmt", "s16", str(tmp_16k),
         ])
 
-        # Cleanup pass 1 temp
         try:
             Path(tmp_formant_pass1).unlink(missing_ok=True)
         except Exception:
             pass
 
+    elif do_formant:
+        # --- EQ-based formant approximation (rubberband unavailable) ---
+        #
+        # Shift the spectral "center of gravity" by boosting/cutting
+        # formant regions. ±6st ≈ ±6dB swing.
+        gain = float(np.clip(formant_shift, -8.0, 8.0))
+        eq_filters = [
+            # Low-mid body (300Hz): boost for dark, cut for bright
+            f"equalizer=f=300:t=q:w=0.8:g={-gain:.1f}",
+            # Upper-mid presence (1800Hz): boost for bright, cut for dark
+            f"equalizer=f=1800:t=q:w=1.0:g={gain:.1f}",
+            # High air (4500Hz): boost for bright, cut for dark
+            f"equalizer=f=4500:t=q:w=1.2:g={gain * 0.5:.1f}",
+        ]
+
+        logger.info(
+            f"[process_voice] Step 1/3: 16kHz mono + formant({formant_shift:+.1f}st) [EQ approx]"
+        )
+
+        sh([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(in_wav), "-ac", "1", "-ar", str(sr),
+            "-af", ",".join(eq_filters),
+            "-sample_fmt", "s16", str(tmp_16k),
+        ])
+
     else:
-        # No formant: single ffmpeg for format conversion
+        # No formant shift: simple format conversion
         logger.info("[process_voice] Step 1/3: 16kHz mono")
         sh([
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -610,7 +637,7 @@ def pitch_shift_ffmpeg_16k(
 
     if method == "auto":
         methods = []
-        if ffmpeg_has_filter("rubberband"):
+        if RUBBERBAND_WORKS:
             methods.append("rubberband")
         methods.append("asetrate")
     else:
@@ -691,7 +718,46 @@ def rumble_layered_with_fx(in_wav_16k: str, out_wav_16k: str, **kwargs) -> None:
     ffmpeg_apply_filter(tmp, out_wav_16k, af)
 
 
-# ========== Logging ==========
+# ========== Runtime capability detection ==========
 
-logger.info(f"FFmpeg has rubberband: {ffmpeg_has_filter('rubberband')}")
-logger.info(f"FFmpeg has asubboost: {ffmpeg_has_filter('asubboost')}")
+
+def _test_rubberband_runtime() -> bool:
+    """
+    Test if rubberband actually works at runtime.
+
+    ffmpeg -filters may report rubberband as available even when
+    the underlying libsamplerate is broken (e.g. M5Stack aarch64).
+    We test by running a tiny real conversion.
+    """
+    if not ffmpeg_has_filter("rubberband"):
+        return False
+
+    test_in = str(WORKDIR / "_rb_test_in.wav")
+    test_out = str(WORKDIR / "_rb_test_out.wav")
+
+    try:
+        # Generate a tiny 0.1s silent WAV
+        silence = np.zeros(1600, dtype=np.float32)  # 0.1s at 16kHz
+        sf.write(test_in, silence, 16000)
+
+        # Try a simple rubberband pitch shift
+        result = sh([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", test_in, "-af", "rubberband=pitch=1.1:tempo=1",
+            "-ac", "1", "-ar", "16000", test_out,
+        ], check=False)
+
+        return result.returncode == 0
+    except Exception:
+        return False
+    finally:
+        for f in [test_in, test_out]:
+            try:
+                Path(f).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+RUBBERBAND_WORKS = _test_rubberband_runtime()
+logger.info(f"FFmpeg has rubberband filter: {ffmpeg_has_filter('rubberband')}")
+logger.info(f"Rubberband runtime test: {'OK' if RUBBERBAND_WORKS else 'FAILED (will use fallbacks)'}")
