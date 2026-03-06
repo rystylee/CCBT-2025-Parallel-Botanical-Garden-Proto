@@ -83,8 +83,7 @@ _idx = _get_device_index()
 
 if _idx is not None:
     _ja_reading = _number_to_japanese(_idx)
-    # 日本語パートはひらがな読みで確実にTTSが発話、英語パートも続けて生成
-    _default_ja = f"わたしは {_ja_reading}ばん のデバイスです。I am device number {_idx}."
+    _default_ja = f"わたしは {_ja_reading}ばん のデバイスです。"
 else:
     _default_ja = "こんにちは、音声合成のテストです。"
 
