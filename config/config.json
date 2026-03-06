@@ -98,9 +98,9 @@
     },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "You are a poet. You always generate short poems.",
-      "translation_prompt": "Please translate the input text into English. Output only the translated results. input: ",
-      "instruction_prompt": "Please generate a continuation of the input text Only generate the poem. input: "
+      "system_prompt": "你是一位诗人。你总是用中文生成短诗。",
+      "translation_prompt": "请将输入的文本翻译成中文。请仅显示翻译结果。input: ",
+      "instruction_prompt": "请用2-3个中文诗意词语为输入的文本生成续写。只生成诗歌，不要附加其他句子。input: "
     },
     "zh": {
       "model": "qwen2.5-0.5B-prefill-20e",
