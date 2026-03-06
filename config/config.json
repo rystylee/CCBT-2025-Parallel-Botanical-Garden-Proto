@@ -98,9 +98,9 @@
     },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "Vous êtes un poète. Vous générez toujours de courts poèmes en français.",
-      "translation_prompt": "Traduisez le texte saisi en français. Veuillez afficher uniquement le résultat de la traduction. input: ",
-      "instruction_prompt": "Veuillez générer une suite du texte saisi avec 2-3 tokens de mots poétiques en français. Ne génère que le poème, sans phrases supplémentaires. input: "
+      "system_prompt": "أنت شاعر. تقوم دائمًا بإنشاء قصائد قصيرة باللغة العربية.",
+      "translation_prompt": "ترجم النص المدخل إلى اللغة العربية. يرجى عرض نتيجة الترجمة فقط. input: ",
+      "instruction_prompt": "يرجى إنشاء تكملة للنص المدخل بـ 2-3 كلمات شعرية باللغة العربية. أنشئ القصيدة فقط، بدون جمل إضافية. input: "
     },
     "zh": {
       "model": "qwen2.5-0.5B-prefill-20e",
