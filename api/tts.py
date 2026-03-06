@@ -232,57 +232,88 @@ def ffmpeg_convert_for_tinyplay_with_rumble(
 
 def convert_with_voice_fx(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
     """
-    Consolidated voice processing: reads config and calls process_voice().
+    Botanical voice processing: reads config and calls process_voice().
 
-    Replaces the old pattern of reading individual rumble params + calling
-    ffmpeg_convert_for_tinyplay_with_rumble(). Uses the v2 pipeline which
-    runs only 2 ffmpeg calls instead of 5-7.
+    Transforms TTS speech into chord-snapped, bloom-enveloped flower voices.
+    Each node gets a deterministic chord tone based on device_id.
     """
     from api.audio_effects import process_voice
 
-    # Pitch: center from random range, wander from granular config
-    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
-    center_pitch = random.uniform(pitch_range["min"], pitch_range["max"])
+    # --- Chord settings ---
+    chord_intervals = audio_config.get("chord_intervals", [0, 4, 7])
+    root_midi = audio_config.get("root_midi", 65)
+    node_id = audio_config.get("device_id", 0)
+    tts_base_midi = audio_config.get("tts_base_midi", 62.0)
 
-    granular_cfg = audio_config.get("granular_pitch", {})
-    pitch_wander_range = granular_cfg.get("wander_range", 4.0)
-    pitch_lfo_speed = granular_cfg.get("lfo_speed", 0.4)
+    # --- Microtonal wander (random per utterance within range) ---
+    mt_cfg = audio_config.get("microtonal_range", {"min": 0.15, "max": 0.40})
+    microtonal_range = random.uniform(mt_cfg["min"], mt_cfg["max"])
 
-    # Formant: random from range
+    mt_speed_cfg = audio_config.get("microtonal_lfo_speed", {"min": 0.12, "max": 0.25})
+    microtonal_lfo_speed = random.uniform(mt_speed_cfg["min"], mt_speed_cfg["max"])
+
+    # --- Harmony ---
+    harmony_voices = audio_config.get("harmony_voices", 2)
+    hm_cfg = audio_config.get("harmony_mix", {"min": 0.15, "max": 0.25})
+    harmony_mix = random.uniform(hm_cfg["min"], hm_cfg["max"])
+
+    # --- Bloom envelope ---
+    bloom_a_cfg = audio_config.get("bloom_attack_ms", {"min": 200.0, "max": 500.0})
+    bloom_attack_ms = random.uniform(bloom_a_cfg["min"], bloom_a_cfg["max"])
+
+    bloom_r_cfg = audio_config.get("bloom_release_ms", {"min": 300.0, "max": 600.0})
+    bloom_release_ms = random.uniform(bloom_r_cfg["min"], bloom_r_cfg["max"])
+
+    # --- Shimmer ---
+    shim_cfg = audio_config.get("shimmer_mix", {"min": 0.04, "max": 0.10})
+    shimmer_mix = random.uniform(shim_cfg["min"], shim_cfg["max"])
+
+    shimmer_band = audio_config.get("shimmer_band", [2000.0, 6000.0])
+
+    # --- Scatter ---
+    scatter_cfg = audio_config.get("grain_scatter", {})
+    scatter_range = scatter_cfg.get("amount_range", {"min": 0.08, "max": 0.18})
+    scatter_amount = random.uniform(scatter_range["min"], scatter_range["max"])
+
+    # --- Formant ---
     formant_cfg = audio_config.get("formant_shift_range", {"min": 0.0, "max": 0.0})
     formant_shift = random.uniform(formant_cfg["min"], formant_cfg["max"])
 
-    # Scatter: random from range
-    scatter_cfg = audio_config.get("grain_scatter", {})
-    scatter_range = scatter_cfg.get("amount_range", {"min": 0.0, "max": 0.0})
-    scatter_amount = random.uniform(scatter_range["min"], scatter_range["max"])
-
-    # Speed: random from range
-    speed_cfg = audio_config.get("speed_range", {"min": 1.0, "max": 1.0})
+    # --- Speed ---
+    speed_cfg = audio_config.get("speed_range", {"min": 0.95, "max": 1.05})
     speed = random.uniform(speed_cfg["min"], speed_cfg["max"])
 
-    # Seed: random per utterance for unique character
+    # --- Seed ---
     seed = random.randint(0, 2**31)
 
     logger.info(
-        f"[voice_fx] pitch={center_pitch:+.1f}st wander=±{pitch_wander_range:.1f}st "
-        f"formant={formant_shift:+.1f}st scatter={scatter_amount:.2f} speed={speed:.2f}x "
-        f"seed={seed}"
+        f"[botanical_fx] node={node_id} "
+        f"chord={chord_intervals} root=MIDI{root_midi} "
+        f"microtonal=±{microtonal_range:.2f}st "
+        f"harmony={harmony_voices}v@{harmony_mix:.2f} "
+        f"bloom={bloom_attack_ms:.0f}/{bloom_release_ms:.0f}ms "
+        f"shimmer={shimmer_mix:.2f} scatter={scatter_amount:.2f} "
+        f"speed={speed:.2f}x seed={seed}"
     )
 
     process_voice(
         in_wav=raw_wav_path,
         out_wav=final_wav_path,
-        center_pitch=center_pitch,
-        pitch_wander_range=pitch_wander_range,
-        pitch_lfo_speed=pitch_lfo_speed,
-        formant_shift=formant_shift,
-        sub_oct_mix=audio_config.get("rumble_sub_oct_mix", 0.55),
-        rumble_mix=audio_config.get("rumble_mix", 0.25),
-        rumble_base_hz=audio_config.get("rumble_base_hz", 55.0),
-        drive=audio_config.get("rumble_drive", 0.55),
-        xover_hz=audio_config.get("rumble_xover_hz", 280.0),
+        chord_intervals=chord_intervals,
+        root_midi=root_midi,
+        node_id=node_id,
+        tts_base_midi=tts_base_midi,
+        microtonal_range=microtonal_range,
+        microtonal_lfo_speed=microtonal_lfo_speed,
+        harmony_voices=harmony_voices,
+        harmony_mix=harmony_mix,
+        bloom_attack_ms=bloom_attack_ms,
+        bloom_release_ms=bloom_release_ms,
+        shimmer_mix=shimmer_mix,
+        shimmer_band_low=shimmer_band[0],
+        shimmer_band_high=shimmer_band[1],
         scatter_amount=scatter_amount,
+        formant_shift=formant_shift,
         speed=speed,
         out_sample_rate=audio_config.get("sample_rate", 48000),
         out_channels=audio_config.get("channels", 2),

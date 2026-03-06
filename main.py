@@ -86,6 +86,7 @@ async def async_main():
     # Inject resolved values into config
     config["network"]["ip_address"] = ip_address
     config["targets"] = targets
+    config.setdefault("audio", {})["device_id"] = device_id  # for botanical voice chord assignment
 
     logger.info(f"Device IP: {ip_address}")
     logger.info(f"Targets: {targets}")

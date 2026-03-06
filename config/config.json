@@ -23,8 +23,7 @@
   "stack_flow_tts": {},
   "system": {},
   "audio": {
-    "_desc": "=== 音声加工パイプライン設定 === 各発話ごとにmin〜maxの範囲でランダムに値が選ばれる",
-
+    "_desc": "=== Botanical Voice パイプライン設定 === 花のような美しいハーモニーの声",
     "playback_device": "dmixer",
     "tinyplay_card": 0,
     "tinyplay_device": 1,
@@ -34,35 +33,64 @@
     "enable_ffmpeg_convert": true,
     "enable_rumble_effect": true,
     "temp_wav_dir": "./tmp",
-
-    "_desc_pitch": "--- ピッチ（音程） --- 毎回この範囲からランダムに中心値が決まる。負の値=低い声。-9で人の声感が残る、-16でほぼ判別不能",
-    "rumble_pitch_steps_range": {"min": -0.0, "max": 8.0},
-
-    "_desc_granular": "--- うねりピッチ --- 音源の中でピッチがゆっくり上下する。wander_range=振幅(±半音)、lfo_speed=速さ(Hz、0.15=ゆっくり潮、0.4=息づかい、0.8=鳴き声)",
-    "granular_pitch": {
-      "wander_range": 0.0,
-      "lfo_speed": 1.1
+    "_desc_chord": "--- 和音設定 --- chord_intervals=[0,4,7]でメジャー、[0,3,7]でマイナー。root_midiは和音のルート音(65=F4)。device_idはmain.pyから自動注入",
+    "chord_intervals": [
+      0,
+      4,
+      7
+    ],
+    "root_midi": 65,
+    "tts_base_midi": 62.0,
+    "_desc_microtonal": "--- 微分音ゆらぎ --- 和音構成音を中心に±centの揺れ。0.15=繊細、0.40=東洋的。lfo_speedは揺れの速さ(Hz)",
+    "microtonal_range": {
+      "min": 0.15,
+      "max": 0.4
     },
-
-    "_desc_formant": "--- フォルマント（声の体格） --- 負=大きい存在(太い声道)、正=小さい存在(細い声道)。0なら無効。±3程度で自然、±6で異形",
-    "formant_shift_range": {"min": --.0, "max": 2.0},
-
-    "_desc_scatter": "--- グレインスキャッター（声の断片化） --- 音の粒がランダムに散らばる。0=無効、0.3=微かな粒感、0.5=はっきり断片化、0.7=かなり崩れる",
+    "microtonal_lfo_speed": {
+      "min": 0.12,
+      "max": 0.25
+    },
+    "_desc_harmony": "--- ハーモニー --- voices=追加ハーモニー声数(0-2)、mix=各ハーモニーの音量",
+    "harmony_voices": 2,
+    "harmony_mix": {
+      "min": 0.15,
+      "max": 0.25
+    },
+    "_desc_bloom": "--- ブルームエンベロープ --- 花がぽっと咲くようなフェードイン/アウト。attack=咲く速さ、release=余韻",
+    "bloom_attack_ms": {
+      "min": 200.0,
+      "max": 500.0
+    },
+    "bloom_release_ms": {
+      "min": 300.0,
+      "max": 600.0
+    },
+    "_desc_shimmer": "--- シマー --- 高域のエアリーノイズ。花びらが風に揺れるような息づかい",
+    "shimmer_mix": {
+      "min": 0.04,
+      "max": 0.1
+    },
+    "shimmer_band": [
+      2000.0,
+      6000.0
+    ],
+    "_desc_scatter": "--- グレインスキャッター --- 控えめな粒感で有機的なテクスチャを加える",
     "grain_scatter": {
-      "amount_range": {"min": 0.1, "max": 0.5}
+      "amount_range": {
+        "min": 0.08,
+        "max": 0.18
+      }
     },
-
-    "_desc_speed": "--- 再生速度 --- 1.0=等速。0.7=ゆっくり(尺が1.4倍に伸びる)、1.1=やや速い。言葉の聞き取りやすさに直結",
-    "speed_range": {"min": 1.0, "max": 1.2},
-
-    "_desc_rumble": "--- ランブル（低域の厚み） --- sub_oct_mix=1オクターブ下の層の音量、rumble_mix=合成ノイズの量、base_hz=ノイズの基本周波数、drive=歪みの量(0=クリーン,1=激しい)",
-    "rumble_sub_oct_mix": 0.05,
-    "rumble_mix": 0.05,
-    "rumble_base_hz": 55.0,
-    "rumble_drive": 0.0,
-
-    "_desc_xover": "--- クロスオーバー --- この周波数を境にハイ(メインの声)とロー(ランブル)を分離合成する。上げると声が明瞭に、下げると低域が分離する",
-    "rumble_xover_hz": 1500.0
+    "_desc_formant": "--- フォルマント --- 正=小さい声道(花的)。0なら無効",
+    "formant_shift_range": {
+      "min": 0.0,
+      "max": 2.0
+    },
+    "_desc_speed": "--- 再生速度 --- ほぼ等速でわずかに揺らぐ",
+    "speed_range": {
+      "min": 0.95,
+      "max": 1.05
+    }
   },
   "led_control": {
     "enabled": true,
