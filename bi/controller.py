@@ -140,6 +140,8 @@ class BIController:
         if wav_path is None:
             logger.error("WAV preparation failed, skipping playback")
             await self._led_fade(self._current_led_brightness, 0.0)
+            # Clear buffer to prevent reusing failed data in next cycle
+            self.input_buffer.clear()
             self.state = "RESTING"
             return
 
