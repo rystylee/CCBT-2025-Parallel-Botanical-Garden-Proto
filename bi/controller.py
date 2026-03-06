@@ -134,28 +134,29 @@ class BIController:
         logger.info("Preparing WAV file (LED pulsing continues)...")
         wav_path = await asyncio.to_thread(self.tts_client.prepare_wav_sync, self.tts_text)
 
-        # Step 2: Stop pulsing, fade up to full brightness
+        # Step 2: Stop pulsing
         await self._stop_pulse()
 
-        if wav_path is None:
-            logger.error("WAV preparation failed, skipping playback")
+        # If WAV preparation succeeded, play it with LED animation
+        if wav_path is not None:
+            # Fade up to full brightness
+            await self._led_fade(self._current_led_brightness, 1.0)
+
+            # Step 3: Play immediately (LED stays at max)
+            try:
+                await asyncio.to_thread(self.tts_client.play_wav_sync, wav_path)
+            except Exception as e:
+                logger.error(f"Error in TTS playback: {e}")
+
+            # Step 4: Fade down after playback
+            await self._led_fade(1.0, 0.0)
+
+            # Step 5: Cleanup WAV file
+            self.tts_client.cleanup_wav(wav_path)
+        else:
+            # WAV preparation failed, just fade down LED
+            logger.error("WAV preparation failed, skipping playback but continuing to send message")
             await self._led_fade(self._current_led_brightness, 0.0)
-            self.state = "RESTING"
-            return
-
-        await self._led_fade(self._current_led_brightness, 1.0)
-
-        # Step 3: Play immediately (LED stays at max)
-        try:
-            await asyncio.to_thread(self.tts_client.play_wav_sync, wav_path)
-        except Exception as e:
-            logger.error(f"Error in TTS playback: {e}")
-
-        # Step 4: Fade down after playback
-        await self._led_fade(1.0, 0.0)
-
-        # Step 5: Cleanup WAV file
-        self.tts_client.cleanup_wav(wav_path)
 
         # Send generated text to target devices
         targets = self.config.get("targets", [])

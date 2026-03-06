@@ -47,7 +47,7 @@ class OscClient:
             msg.add_arg(arg)
         msg = msg.build()
         client.send(msg)
-        logger.info(f"sent to target {target['host']}:{target['port']} " f"address: {address} msg: {msg}")
+        # logger.info(f"sent to target {target['host']}:{target['port']} " f"address: {address} msg: {msg}")
 
     def send_to_all_targets(self, targets: List[dict], address: str, *args):
         """Send OSC message to multiple target devices"""
