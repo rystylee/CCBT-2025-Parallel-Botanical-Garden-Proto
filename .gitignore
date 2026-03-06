@@ -148,3 +148,7 @@ llm-melotts_1.7-m5stack1_arm64.deb
 
 # backup
 config/config.json.bak.*
+
+# audio
+*.mp3
+*.wav
