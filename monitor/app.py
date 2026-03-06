@@ -25,7 +25,7 @@ NODE_COUNT  = 100
 OSC_PORT    = 9000
 SSH_USER    = "root"
 GIT_DIR     = "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto"
-SOUND_CMD   = "aplay -D dmixer /usr/local/m5stack/logo.wav 2>/dev/null || tinyplay -D0 -d1 /usr/local/m5stack/logo.wav"
+SOUND_CMD   = "aplay -D dmixer /usr/local/m5stack/logo.wav"
 LED_SERVER_SESSION = "bi_led_srv"
 LED_SERVER_CMD = f"cd {GIT_DIR} && uv run python pca9685_osc_led_server.py --port {OSC_PORT}"
 LED_STEPS   = 40
@@ -45,7 +45,7 @@ TMUX_CONF = {
     },
     "llm": {
         "session": "bi_llm",
-        "cmd": f"cd {GIT_DIR} && git stash; git pull; uv run python scripts/check_llm.py",
+        "cmd": f"cd {GIT_DIR} && git stash; git pull; chmod +x scripts/check_llm.py && ./scripts/check_llm.py",
     },
     "tts": {
         "session": "bi_tts",
@@ -477,9 +477,22 @@ WORKERS = {
     "tts_stop": lambda n: _tmux_stop(n, "tts"),
     "tts_check": lambda n: _tmux_check(n, "tts"),
 }
+
+# 一括実行時にノードを1台ずつ順番に処理するアクション
+# （TTS startは全台同時だとどれが話しているか分からないため順次実行）
+SEQUENTIAL_ACTIONS = {"tts_start"}
+
 def run_worker(action, num):
     fn = WORKERS.get(action)
     if fn: threading.Thread(target=fn, args=(num,), daemon=True).start()
+
+def _run_sequential(action, nums):
+    """ノードを1台ずつ順番に実行する（バックグラウンドスレッド用）"""
+    fn = WORKERS.get(action)
+    if not fn:
+        return
+    for num in nums:
+        fn(int(num))    # 完了まで待ってから次へ
 
 # -- API --
 @app.route("/api/status/<page>")
@@ -503,8 +516,12 @@ def api_run():
         cat = _ACTION_CATEGORY.get(action)
         if cat:
             bi_logger.log_batch(cat, action, len(nums))
-    for num in nums:
-        run_worker(action, int(num))
+    if action in SEQUENTIAL_ACTIONS and len(nums) > 1:
+        # 順次実行：1台完了してから次の1台へ
+        threading.Thread(target=_run_sequential, args=(action, nums), daemon=True).start()
+    else:
+        for num in nums:
+            run_worker(action, int(num))
     return jsonify({"ok": True})
 
 @app.route("/api/reset", methods=["POST"])

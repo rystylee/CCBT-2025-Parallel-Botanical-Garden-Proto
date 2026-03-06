@@ -7,8 +7,7 @@ OpenAI互換TTS API (MeloTTS) に接続してWAVファイルを生成し、
 デフォルトで再生まで実行。--no-play で再生スキップ。
 
 デバイスIPアドレス（/etc/network/interfaces の address 10.0.0.X）から
-デバイス番号を自動取得し、「私はX番のデバイスです。I am device number X.」
-というテキストを生成・再生する。
+デバイス番号を自動取得し、日本語＋英語で番号を読み上げる。
 
 前提:
     StackFlow MeloTTS サービスが起動済み (systemctl status llm-melotts)
@@ -30,6 +29,37 @@ import tempfile
 import time
 
 
+# ---------------------------------------------------------------------------
+# 数字 → 日本語読み (1〜100)
+# ---------------------------------------------------------------------------
+_DIGITS = ["", "いち", "に", "さん", "よん", "ご", "ろく", "なな", "はち", "きゅう"]
+
+
+def _number_to_japanese(n: int) -> str:
+    """1〜100 の整数を日本語の読みに変換する。"""
+    if n == 100:
+        return "ひゃく"
+    if n < 1 or n > 100:
+        return str(n)
+    if n <= 10:
+        if n == 10:
+            return "じゅう"
+        return _DIGITS[n]
+    tens = n // 10
+    ones = n % 10
+    reading = ""
+    if tens == 1:
+        reading = "じゅう"
+    else:
+        reading = _DIGITS[tens] + "じゅう"
+    if ones > 0:
+        reading += _DIGITS[ones]
+    return reading
+
+
+# ---------------------------------------------------------------------------
+# デバイス番号取得
+# ---------------------------------------------------------------------------
 def _get_device_index() -> int | None:
     """
     /etc/network/interfaces の address 10.0.0.X から X を取得。
@@ -46,12 +76,17 @@ def _get_device_index() -> int | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# デフォルトテキスト生成
+# ---------------------------------------------------------------------------
 _idx = _get_device_index()
-_default_ja = (
-    f"私は{_idx}番のデバイスです。I am device number {_idx}."
-    if _idx is not None
-    else "こんにちは、音声合成のテストです。"
-)
+
+if _idx is not None:
+    _ja_reading = _number_to_japanese(_idx)
+    # 日本語パートはひらがな読みで確実にTTSが発話、英語パートも続けて生成
+    _default_ja = f"わたしは {_ja_reading}ばん のデバイスです。I am device number {_idx}."
+else:
+    _default_ja = "こんにちは、音声合成のテストです。"
 
 # 言語別デフォルト設定
 DEFAULT_SETTINGS = {
@@ -99,7 +134,7 @@ def check_tts(
     print(f"[TTS CHECK] Text: {text}")
     print(f"[TTS CHECK] Play: {play}")
     if _idx is not None:
-        print(f"[TTS CHECK] Device Index: {_idx} (from /etc/network/interfaces)")
+        print(f"[TTS CHECK] Device Index: {_idx} ({_number_to_japanese(_idx)}) from /etc/network/interfaces")
     else:
         print("[TTS CHECK] Device Index: unknown (fallback text)")
     print()
