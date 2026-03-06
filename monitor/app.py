@@ -1489,6 +1489,7 @@ let snippets = JSON.parse(localStorage.getItem('bi_snippets') || 'null') || [
   {{name:"Network", command:"ip addr show | grep 'inet '"}},
   {{name:"Git status", command:"cd {GIT_DIR} && git log --oneline -5 2>/dev/null || echo 'no repo'"}},
   {{name:"Restart BI", command:"tmux kill-session -t bi_main 2>/dev/null; echo 'killed'"}},
+  {{name:"Change HW Volume", command:"amixer set 'TX LEFT ANA GAIN' 50%"}},
 ];
 function saveSnippets(){{ localStorage.setItem('bi_snippets', JSON.stringify(snippets)); }}
 
