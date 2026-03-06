@@ -486,13 +486,37 @@ def run_worker(action, num):
     fn = WORKERS.get(action)
     if fn: threading.Thread(target=fn, args=(num,), daemon=True).start()
 
+SEQUENTIAL_WAIT_SEC = 30        # 1台あたりの最大待ち時間
+SEQUENTIAL_POLL_SEC = 2         # ポーリング間隔
+
 def _run_sequential(action, nums):
-    """ノードを1台ずつ順番に実行する（バックグラウンドスレッド用）"""
+    """ノードを1台ずつ順番に実行する（バックグラウンドスレッド用）
+    tmux内のスクリプトが [OK] または [FAIL] を出力するまで待ってから次へ。
+    """
     fn = WORKERS.get(action)
     if not fn:
         return
+    conf = TMUX_CONF.get(action.replace("_start", "").replace("_stop", "").replace("_check", ""))
     for num in nums:
-        fn(int(num))    # 完了まで待ってから次へ
+        fn(int(num))
+        if conf:
+            _wait_for_tmux_done(num, conf["session"])
+
+def _wait_for_tmux_done(num, session_name):
+    """tmuxペインの出力に完了マーカーが現れるまでポーリングで待機する。"""
+    deadline = time.time() + SEQUENTIAL_WAIT_SEC
+    while time.time() < deadline:
+        time.sleep(SEQUENTIAL_POLL_SEC)
+        try:
+            code, out, _ = ssh_run(
+                node_ip(num),
+                f"tmux capture-pane -t {session_name} -p -S -30 2>/dev/null",
+                timeout=8,
+            )
+            if code == 0 and ("[OK]" in out or "[FAIL]" in out):
+                return
+        except Exception:
+            return
 
 # -- API --
 @app.route("/api/status/<page>")
