@@ -400,16 +400,22 @@ class StackFlowTTSClient:
 
     def set_params(self, config: dict):
         lang = config.get("common").get("lang")
-        self.model = TTS_SETTINGS.get(lang).get("model")
+        # TTS always uses Japanese model regardless of LLM language
+        self.model = TTS_SETTINGS.get("ja").get("model")
 
         logger.info("[TTS info]")
-        logger.info(f"lang: {lang}")
+        logger.info(f"lang: {lang} (TTS forced to ja)")
         logger.info(f"model: {self.model}")
 
     def _transform_text(self, text: str) -> str:
         """Apply text transformations based on config."""
         tt_cfg = self.config.get("audio", {}).get("text_transform", {})
         if not tt_cfg.get("enabled", False):
+            return text
+
+        # Hiragana/elongation transforms only apply to Japanese
+        lang = self.config.get("common", {}).get("lang", "ja")
+        if lang != "ja":
             return text
 
         return transform_text(

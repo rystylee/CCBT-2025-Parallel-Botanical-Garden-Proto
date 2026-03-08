@@ -24,6 +24,22 @@ def parse_args():
     return parser.parse_args()
 
 
+def resolve_lang_from_device_id(device_id: int) -> str:
+    """Resolve language from the last digit of device ID.
+
+    1-2: ja, 3-4: en, 5-6: fr, 7-8: fa, 9-0: ar
+    """
+    last_digit = device_id % 10
+    mapping = {
+        1: "ja", 2: "ja",
+        3: "en", 4: "en",
+        5: "fr", 6: "fr",
+        7: "fa", 8: "fa",
+        9: "ar", 0: "ar",
+    }
+    return mapping[last_digit]
+
+
 def resolve_device_id(cli_value: int | None) -> int:
     """Resolve device ID from CLI argument, /etc/ccbt-device-id, or /etc/network/interfaces."""
     if cli_value is not None:
@@ -87,6 +103,11 @@ async def async_main():
     config["network"]["ip_address"] = ip_address
     config["targets"] = targets
     config.setdefault("audio", {})["device_id"] = device_id  # for per-node voice character
+
+    # Auto-detect language from device ID
+    lang = resolve_lang_from_device_id(device_id)
+    config.setdefault("common", {})["lang"] = lang
+    logger.info(f"Language: {lang} (device_id={device_id}, last_digit={device_id % 10})")
 
     logger.info(f"Device IP: {ip_address}")
     logger.info(f"Targets: {targets}")
