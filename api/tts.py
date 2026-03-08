@@ -7,6 +7,7 @@ from loguru import logger
 from openai import OpenAI
 
 from api.utils import TTS_SETTINGS
+from api.text_transform import transform_text
 
 # ========== Utility Functions for WAV File Generation & Playback ==========
 
@@ -232,89 +233,120 @@ def ffmpeg_convert_for_tinyplay_with_rumble(
 
 def convert_with_voice_fx(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
     """
-    Botanical voice processing: reads config and calls process_voice().
+    Voice processing dispatcher: selects pipeline based on effect_mode config.
 
-    Transforms TTS speech into chord-snapped, bloom-enveloped flower voices.
-    Each node gets a deterministic chord tone based on device_id.
+    Modes:
+      "ghost"  — Accumulating Ghosts (Heptapod B-inspired, pro mastering)
+      "rumble" — Legacy rumble pipeline (granular pitch + sub-octave)
+      "off"    — Format conversion only (no audio effects)
     """
+    effect_mode = audio_config.get("effect_mode", "ghost")
+
+    if effect_mode == "ghost":
+        _convert_ghost(raw_wav_path, final_wav_path, audio_config)
+    elif effect_mode == "rumble":
+        _convert_rumble(raw_wav_path, final_wav_path, audio_config)
+    else:
+        # "off" — just format convert
+        from api.audio_effects import sh
+        sr = audio_config.get("sample_rate", 48000)
+        ch = audio_config.get("channels", 2)
+        fmt = audio_config.get("sample_format", "s16")
+        sh([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(raw_wav_path),
+            "-ar", str(sr), "-ac", str(ch), "-sample_fmt", fmt,
+            str(final_wav_path),
+        ])
+        logger.info(f"[voice_fx] mode=off, format conversion only")
+
+
+def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
+    """Accumulating Ghosts pipeline."""
     from api.audio_effects import process_voice
 
-    # --- Chord settings ---
-    chord_intervals = audio_config.get("chord_intervals", [0, 4, 7])
-    root_midi = audio_config.get("root_midi", 65)
-    node_id = audio_config.get("device_id", 0)
-    tts_base_midi = audio_config.get("tts_base_midi", 62.0)
+    ghost_cfg = audio_config.get("ghost", {})
+    seg_cfg = audio_config.get("segmentation", {})
+    bloom_cfg = audio_config.get("bloom", {})
+    gap_cfg = audio_config.get("gap_fill", {})
+    reverb_cfg = audio_config.get("reverb", {})
+    master_cfg = audio_config.get("mastering", {})
+    global_cfg = audio_config.get("global_bloom", {})
 
-    # --- Microtonal wander (random per utterance within range) ---
-    mt_cfg = audio_config.get("microtonal_range", {"min": 0.15, "max": 0.40})
-    microtonal_range = random.uniform(mt_cfg["min"], mt_cfg["max"])
-
-    mt_speed_cfg = audio_config.get("microtonal_lfo_speed", {"min": 0.12, "max": 0.25})
-    microtonal_lfo_speed = random.uniform(mt_speed_cfg["min"], mt_speed_cfg["max"])
-
-    # --- Harmony ---
-    harmony_voices = audio_config.get("harmony_voices", 2)
-    hm_cfg = audio_config.get("harmony_mix", {"min": 0.15, "max": 0.25})
-    harmony_mix = random.uniform(hm_cfg["min"], hm_cfg["max"])
-
-    # --- Bloom envelope ---
-    bloom_a_cfg = audio_config.get("bloom_attack_ms", {"min": 200.0, "max": 500.0})
-    bloom_attack_ms = random.uniform(bloom_a_cfg["min"], bloom_a_cfg["max"])
-
-    bloom_r_cfg = audio_config.get("bloom_release_ms", {"min": 300.0, "max": 600.0})
-    bloom_release_ms = random.uniform(bloom_r_cfg["min"], bloom_r_cfg["max"])
-
-    # --- Shimmer ---
-    shim_cfg = audio_config.get("shimmer_mix", {"min": 0.04, "max": 0.10})
-    shimmer_mix = random.uniform(shim_cfg["min"], shim_cfg["max"])
-
-    shimmer_band = audio_config.get("shimmer_band", [2000.0, 6000.0])
-
-    # --- Scatter ---
-    scatter_cfg = audio_config.get("grain_scatter", {})
-    scatter_range = scatter_cfg.get("amount_range", {"min": 0.08, "max": 0.18})
-    scatter_amount = random.uniform(scatter_range["min"], scatter_range["max"])
-
-    # --- Formant ---
-    formant_cfg = audio_config.get("formant_shift_range", {"min": 0.0, "max": 0.0})
-    formant_shift = random.uniform(formant_cfg["min"], formant_cfg["max"])
-
-    # --- Speed ---
-    speed_cfg = audio_config.get("speed_range", {"min": 0.95, "max": 1.05})
-    speed = random.uniform(speed_cfg["min"], speed_cfg["max"])
-
-    # --- Seed ---
     seed = random.randint(0, 2**31)
 
     logger.info(
-        f"[botanical_fx] node={node_id} "
-        f"chord={chord_intervals} root=MIDI{root_midi} "
-        f"microtonal=±{microtonal_range:.2f}st "
-        f"harmony={harmony_voices}v@{harmony_mix:.2f} "
-        f"bloom={bloom_attack_ms:.0f}/{bloom_release_ms:.0f}ms "
-        f"shimmer={shimmer_mix:.2f} scatter={scatter_amount:.2f} "
-        f"speed={speed:.2f}x seed={seed}"
+        f"[ghost_fx] mode=ghost "
+        f"ghost_linger={ghost_cfg.get('linger_s', 2.5)}s "
+        f"reverb_wet={reverb_cfg.get('wet', 0.22)} seed={seed}"
     )
 
     process_voice(
         in_wav=raw_wav_path,
         out_wav=final_wav_path,
-        chord_intervals=chord_intervals,
-        root_midi=root_midi,
-        node_id=node_id,
-        tts_base_midi=tts_base_midi,
-        microtonal_range=microtonal_range,
-        microtonal_lfo_speed=microtonal_lfo_speed,
-        harmony_voices=harmony_voices,
-        harmony_mix=harmony_mix,
-        bloom_attack_ms=bloom_attack_ms,
-        bloom_release_ms=bloom_release_ms,
-        shimmer_mix=shimmer_mix,
-        shimmer_band_low=shimmer_band[0],
-        shimmer_band_high=shimmer_band[1],
-        scatter_amount=scatter_amount,
-        formant_shift=formant_shift,
-        speed=speed,
+        ghost_linger_s=ghost_cfg.get("linger_s", 2.5),
+        ghost_level=ghost_cfg.get("level", 0.42),
+        ghost_cutoff_start=ghost_cfg.get("cutoff_start", 550),
+        ghost_cutoff_decay=ghost_cfg.get("cutoff_decay", 12),
+        ghost_resonance=ghost_cfg.get("resonance", 0.3),
+        silence_threshold=seg_cfg.get("silence_threshold", 0.015),
+        min_segment_ms=seg_cfg.get("min_segment_ms", 40),
+        max_segment_ms=seg_cfg.get("max_segment_ms", 280),
+        bloom_attack_ms=bloom_cfg.get("attack_ms", 25),
+        bloom_release_ms=bloom_cfg.get("release_ms", 60),
+        gap_fill_level=gap_cfg.get("level", 0.25),
+        gap_fill_cutoff=gap_cfg.get("cutoff", 500),
+        reverb_room_size=reverb_cfg.get("room_size", 0.82),
+        reverb_damping=reverb_cfg.get("damping", 0.45),
+        reverb_wet=reverb_cfg.get("wet", 0.22),
+        reverb_predelay_ms=reverb_cfg.get("predelay_ms", 15),
+        saturation_drive=master_cfg.get("saturation_drive", 0.20),
+        low_boost_db=master_cfg.get("low_boost_db", 2.5),
+        mid_cut_db=master_cfg.get("mid_cut_db", -1.5),
+        air_boost_db=master_cfg.get("air_boost_db", 1.0),
+        comp_threshold_db=master_cfg.get("comp_threshold_db", -16),
+        comp_ratio=master_cfg.get("comp_ratio", 2.5),
+        stereo_width=audio_config.get("stereo_width", 0.25),
+        global_attack_s=global_cfg.get("attack_s", 0.5),
+        global_release_s=global_cfg.get("release_s", 0.4),
+        voice_level=audio_config.get("voice_level", 0.58),
+        out_sample_rate=audio_config.get("sample_rate", 48000),
+        out_channels=audio_config.get("channels", 2),
+        out_sample_format=audio_config.get("sample_format", "s16"),
+        seed=seed,
+    )
+
+
+def _convert_rumble(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
+    """Legacy rumble pipeline (v2)."""
+    from api.audio_effects import process_voice_rumble
+
+    pitch_range = audio_config.get("rumble_pitch_steps_range", {"min": -16.0, "max": -3.0})
+    center_pitch = random.uniform(pitch_range["min"], pitch_range["max"])
+
+    granular_cfg = audio_config.get("granular_pitch", {})
+    formant_cfg = audio_config.get("formant_shift_range", {"min": 0.0, "max": 0.0})
+    scatter_cfg = audio_config.get("grain_scatter", {})
+    scatter_range = scatter_cfg.get("amount_range", {"min": 0.0, "max": 0.0})
+    speed_cfg = audio_config.get("speed_range", {"min": 1.0, "max": 1.0})
+    seed = random.randint(0, 2**31)
+
+    logger.info(f"[rumble_fx] mode=rumble pitch={center_pitch:+.1f}st seed={seed}")
+
+    process_voice_rumble(
+        in_wav=raw_wav_path,
+        out_wav=final_wav_path,
+        center_pitch=center_pitch,
+        pitch_wander_range=granular_cfg.get("wander_range", 4.0),
+        pitch_lfo_speed=granular_cfg.get("lfo_speed", 0.4),
+        formant_shift=random.uniform(formant_cfg["min"], formant_cfg["max"]),
+        sub_oct_mix=audio_config.get("rumble_sub_oct_mix", 0.55),
+        rumble_mix=audio_config.get("rumble_mix", 0.25),
+        rumble_base_hz=audio_config.get("rumble_base_hz", 55.0),
+        drive=audio_config.get("rumble_drive", 0.55),
+        xover_hz=audio_config.get("rumble_xover_hz", 280.0),
+        scatter_amount=random.uniform(scatter_range["min"], scatter_range["max"]),
+        speed=random.uniform(speed_cfg["min"], speed_cfg["max"]),
         out_sample_rate=audio_config.get("sample_rate", 48000),
         out_channels=audio_config.get("channels", 2),
         out_sample_format=audio_config.get("sample_format", "s16"),
@@ -364,9 +396,6 @@ class StackFlowTTSClient:
     def __init__(self, config: dict):
         self.config = config
         self.set_params(config)
-        # NOTE: TCP経由のStackFlowセットアップは行わない
-        # speak_to_fileはHTTP API経由で動作するため、TCPワーカー確保は不要
-        # (TCPで先にワーカーを占有すると、HTTP APIが新ワーカーを作れず0バイトWAVになる)
         logger.info("StackFlowTTSClient initialized (HTTP API mode)")
 
     def set_params(self, config: dict):
@@ -377,12 +406,30 @@ class StackFlowTTSClient:
         logger.info(f"lang: {lang}")
         logger.info(f"model: {self.model}")
 
+    def _transform_text(self, text: str) -> str:
+        """Apply text transformations based on config."""
+        tt_cfg = self.config.get("audio", {}).get("text_transform", {})
+        if not tt_cfg.get("enabled", False):
+            return text
+
+        return transform_text(
+            text,
+            to_hira=tt_cfg.get("to_hiragana", True),
+            elongation_mode=tt_cfg.get("elongation_mode", "off"),
+            elongation_probability=tt_cfg.get("elongation_probability", 0.5),
+            elongation_length_min=tt_cfg.get("elongation_length", {}).get("min", 2),
+            elongation_length_max=tt_cfg.get("elongation_length", {}).get("max", 5),
+            seed=random.randint(0, 2**31),
+        )
+
     def prepare_wav_sync(self, text: str) -> str | None:
         """
         Synchronous version of prepare_wav for use with asyncio.to_thread.
 
         Generate and convert WAV file, return path for playback.
         """
+        text = self._transform_text(text)
+
         audio_config = self.config.get("audio", {})
 
         temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
@@ -465,6 +512,8 @@ class StackFlowTTSClient:
         Returns:
             str: Path to the playback-ready WAV file, or None on failure
         """
+        text = self._transform_text(text)
+
         audio_config = self.config.get("audio", {})
 
         temp_wav_dir = audio_config.get("temp_wav_dir", "/tmp")
@@ -594,6 +643,8 @@ class StackFlowTTSClient:
         Raises:
             Exception: WAV generation, conversion, or playback failed
         """
+        text = self._transform_text(text)
+
         audio_config = self.config.get("audio", {})
 
         # Get configuration

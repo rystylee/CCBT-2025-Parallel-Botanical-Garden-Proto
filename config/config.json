@@ -23,7 +23,7 @@
   "stack_flow_tts": {},
   "system": {},
   "audio": {
-    "_desc": "=== Botanical Voice パイプライン設定 === 花のような美しいハーモニーの声",
+    "_desc": "=== Accumulating Ghosts パイプライン === 声のスペクトル残像が蓄積する暗い倍音テクスチャー",
     "playback_device": "dmixer",
     "tinyplay_card": 0,
     "tinyplay_device": 1,
@@ -33,63 +33,67 @@
     "enable_ffmpeg_convert": true,
     "enable_rumble_effect": true,
     "temp_wav_dir": "./tmp",
-    "_desc_chord": "--- 和音設定 --- chord_intervals=[0,4,7]でメジャー、[0,3,7]でマイナー。root_midiは和音のルート音(65=F4)。device_idはmain.pyから自動注入",
-    "chord_intervals": [
-      0,
-      4,
-      7
-    ],
-    "root_midi": 65,
-    "tts_base_midi": 62.0,
-    "_desc_microtonal": "--- 微分音ゆらぎ --- 和音構成音を中心に±centの揺れ。0.15=繊細、0.40=東洋的。lfo_speedは揺れの速さ(Hz)",
-    "microtonal_range": {
-      "min": 0.15,
-      "max": 0.4
+    "_desc_ghost": "--- ゴースト蓄積 --- 各音節がスペクトル残像を残し、後半ほど倍音クラスターが厚くなる",
+    "ghost": {
+      "linger_s": 2.5,
+      "level": 0.42,
+      "cutoff_start": 550,
+      "cutoff_decay": 12,
+      "resonance": 0.3
     },
-    "microtonal_lfo_speed": {
-      "min": 0.12,
-      "max": 0.25
+    "_desc_seg": "--- セグメンテーション --- 音声をエネルギーベースで音節単位に分割",
+    "segmentation": {
+      "silence_threshold": 0.015,
+      "min_segment_ms": 40,
+      "max_segment_ms": 280
     },
-    "_desc_harmony": "--- ハーモニー --- voices=追加ハーモニー声数(0-2)、mix=各ハーモニーの音量",
-    "harmony_voices": 2,
-    "harmony_mix": {
-      "min": 0.15,
-      "max": 0.25
+    "_desc_bloom": "--- セグメントブルーム --- 各音節のフェードイン/アウト",
+    "bloom": {
+      "attack_ms": 25,
+      "release_ms": 60
     },
-    "_desc_bloom": "--- ブルームエンベロープ --- 花がぽっと咲くようなフェードイン/アウト。attack=咲く速さ、release=余韻",
-    "bloom_attack_ms": {
-      "min": 200.0,
-      "max": 500.0
+    "_desc_gap": "--- ギャップフィル --- 音節間をスペクトルモーフで埋める",
+    "gap_fill": {
+      "level": 0.25,
+      "cutoff": 500
     },
-    "bloom_release_ms": {
-      "min": 300.0,
-      "max": 600.0
+    "_desc_reverb": "--- Schroederリバーブ --- アルゴリズムリバーブ（aecho不使用）",
+    "reverb": {
+      "room_size": 0.82,
+      "damping": 0.45,
+      "wet": 0.22,
+      "predelay_ms": 15
     },
-    "_desc_shimmer": "--- シマー --- 高域のエアリーノイズ。花びらが風に揺れるような息づかい",
-    "shimmer_mix": {
-      "min": 0.04,
-      "max": 0.1
+    "_desc_mastering": "--- マスタリング --- テープサチュレーション+マルチバンドEQ+コンプレッサー",
+    "mastering": {
+      "saturation_drive": 0.2,
+      "low_boost_db": 2.5,
+      "mid_cut_db": -1.5,
+      "air_boost_db": 1.0,
+      "comp_threshold_db": -16,
+      "comp_ratio": 2.5
     },
-    "shimmer_band": [
-      2000.0,
-      6000.0
-    ],
-    "_desc_scatter": "--- グレインスキャッター --- 控えめな粒感で有機的なテクスチャを加える",
-    "grain_scatter": {
-      "amount_range": {
-        "min": 0.08,
-        "max": 0.18
+    "_desc_stereo": "--- ステレオ --- Haas式デコリレーション",
+    "stereo_width": 0.25,
+    "_desc_global": "--- グローバルブルーム --- 全体のフェードイン/アウト",
+    "global_bloom": {
+      "attack_s": 0.5,
+      "release_s": 0.4
+    },
+    "_desc_voice": "--- 声レベル --- 声の音量バランス",
+    "voice_level": 0.58,
+    "_desc_mode": "--- エフェクトモード --- ghost=蓄積ゴースト rumble=旧ランブル off=加工なし",
+    "effect_mode": "ghost",
+    "_desc_text": "--- テキスト変換 --- ひらがな化＋母音伸ばし。elongation_mode: dash/vowel/mixed/off",
+    "text_transform": {
+      "enabled": true,
+      "to_hiragana": true,
+      "elongation_mode": "mixed",
+      "elongation_probability": 0.5,
+      "elongation_length": {
+        "min": 2,
+        "max": 5
       }
-    },
-    "_desc_formant": "--- フォルマント --- 正=小さい声道(花的)。0なら無効",
-    "formant_shift_range": {
-      "min": 0.0,
-      "max": 2.0
-    },
-    "_desc_speed": "--- 再生速度 --- ほぼ等速でわずかに揺らぐ",
-    "speed_range": {
-      "min": 0.95,
-      "max": 1.05
     }
   },
   "led_control": {
