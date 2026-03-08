@@ -31,7 +31,7 @@
     "channels": 2,
     "sample_format": "s16",
     "enable_ffmpeg_convert": true,
-    "enable_rumble_effect": true,
+    "enable_rumble_effect": false,
     "temp_wav_dir": "./tmp",
     "_desc_ghost": "--- ゴースト蓄積 --- 各音節がスペクトル残像を残し、後半ほど倍音クラスターが厚くなる",
     "ghost": {
