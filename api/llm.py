@@ -65,7 +65,7 @@ class StackFlowLLMClient:
         send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
         output = await asyncio.to_thread(self._inference_sync, send_data)
 
-        output = self._postprocess(output)
+        output = self._postprocess(output, query)
 
         # Post-generation: translate Japanese output to device language
         if self.lang != "ja" and output:
