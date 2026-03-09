@@ -25,7 +25,6 @@
     "max_output_chars": {"ja": 20, "zh": 20, "en": 50, "fr": 50, "fa": 40, "ar": 40},
     "_max_output_chars_note": "生成テキストの最大文字数(言語別)。超過時は自然な切れ目で切断。ja10文字≈「今日も森が静かに」程度"
   },
-  },
   "stack_flow_tts": {},
   "system": {},
   "audio": {
