@@ -59,7 +59,8 @@ class StackFlowLLMClient:
         prompt = self.instruction_prompt + translated_query
         logger.info(f"prompt: {prompt}")
         if soft_prefix_b64 is not None:
-            logger.info(f"soft_prefix_b64: {soft_prefix_b64[:30]}... len: {soft_prefix_len}")
+            sp_val = self._decode_soft_prefix_val(soft_prefix_b64)
+            logger.info(f"soft_prefix: val={sp_val:.6f} len={soft_prefix_len}")
 
         send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
         output = await asyncio.to_thread(self._inference_sync, send_data)
