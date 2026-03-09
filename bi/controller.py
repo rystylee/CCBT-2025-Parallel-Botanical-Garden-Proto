@@ -97,7 +97,8 @@ class BIController:
         try:
             sp_b64 = override_soft_prefix_val(
                 self.input_buffer[-1].soft_prefix_b64, self.config
-            )            generated_text = await self.llm_client.generate_text(
+            )
+            generated_text = await self.llm_client.generate_text(
                 query=concatenated_text,
                 soft_prefix_b64=sp_b64,
                 soft_prefix_len=P,
