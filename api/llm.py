@@ -243,9 +243,13 @@ class StackFlowLLMClient:
     _BREAKS_LATIN = [" ", ",", ".", ";"]
     _BREAKS_RTL = [" ", "،", ".", "؛"]
 
+    def _get_max_chars(self) -> int:
+        cfg = self.config.get("stack_flow_llm", {}).get("max_output_chars", {})
+        return cfg.get(self.lang, self._MAX_CHARS.get(self.lang, 25))
+
     def _truncate(self, text: str) -> str:
         """Truncate text to appropriate length with natural break points."""
-        max_chars = self._MAX_CHARS.get(self.lang, 25)
+        max_chars = self._get_max_chars()
         if len(text) <= max_chars:
             return text
 

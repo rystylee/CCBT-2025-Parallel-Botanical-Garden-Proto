@@ -21,7 +21,10 @@
     "max_tokens": 64,
     "_max_tokens_note": "LLMが1回の推論で生成する最大トークン数。64=短文(1-2行)、96=中程度、128=長め。小さすぎると何も出ない場合あり",
     "soft_prefix_vals": [0.08],
-    "_soft_prefix_vals_note": "LLMのsoft prefix値の候補リスト。ランダムに1つ選ばれる。値が大きいほど生成に揺らぎが出る。通常トークン1個分≈0.03-0.08、現在の10は極めて強い"
+    "_soft_prefix_vals_note": "LLMのsoft prefix値の候補リスト。ランダムに1つ選ばれる。値が大きいほど生成に揺らぎが出る。通常トークン1個分≈0.03-0.08、現在の10は極めて強い",
+    "max_output_chars": {"ja": 20, "zh": 20, "en": 50, "fr": 50, "fa": 40, "ar": 40},
+    "_max_output_chars_note": "生成テキストの最大文字数(言語別)。超過時は自然な切れ目で切断。ja10文字≈「今日も森が静かに」程度"
+  },
   },
   "stack_flow_tts": {},
   "system": {},
@@ -60,7 +63,7 @@
     "pitch_shift": {
       "enabled": true,
       "_enabled_note": "ピッチシフトの有効/無効",
-      "semitones": [3, 4, 5, 7],
+      "semitones": [-3, -2, 0, 0, 2, 3],
       "_semitones_note": "-12=1oct下, -7=完全5度下, -5=完全4度下, -3=短3度下, 0=ユニゾン(3倍確率), +3=短3度上, +4=長3度上, +5=完全4度上, +7=完全5度上, +12=1oct上"
     },
 
@@ -156,7 +159,7 @@
       "_to_hiragana_note": "カタカナ→ひらがな変換。pykakasi未インストール時は単純カタカナ置換のみ",
       "elongation_mode": "mixed",
       "_elongation_mode_note": "母音伸ばしモード。dash=長音符(ー)、vowel=母音繰返し(ああ)、mixed=ランダム混合、off=伸ばしなし",
-      "elongation_probability": 0.5,
+      "elongation_probability": 0.8,
       "_elongation_probability_note": "各文字が伸ばされる確率(0-1)。0.3=たまに、0.5=半分、1.0=全て",
       "elongation_length": {
         "min": 2,
