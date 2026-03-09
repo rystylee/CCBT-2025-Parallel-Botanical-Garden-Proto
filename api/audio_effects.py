@@ -886,16 +886,26 @@ def process_voice(
         ... (see parameter list for full documentation)
         seed: Random seed for spectral phase generation
     """
-    # ---- STEP 1: Load at native sample rate ----
+    # ---- STEP 1: Load and upsample to 44.1kHz for richer spectral processing ----
 
-    y, sr = load_wav_native(in_wav)
+    y, sr_native = load_wav_native(in_wav)
+    if sr_native < 44100:
+        from scipy.signal import resample
+        new_len = int(len(y) * 44100 / sr_native)
+        y = resample(y, new_len).astype(np.float32)
+        sr = 44100
+        logger.info(
+            f"[ghost] Step 1/4: Loaded {len(y) * sr_native // 44100} samples at {sr_native}Hz, "
+            f"upsampled to {len(y)} samples at {sr}Hz ({len(y) / sr:.2f}s)"
+        )
+    else:
+        sr = sr_native
+        logger.info(
+            f"[ghost] Step 1/4: Loaded {len(y)} samples at {sr}Hz ({len(y) / sr:.2f}s)"
+        )
     n = len(y)
     if n < sr * 0.1:
         raise RuntimeError(f"Audio too short: {n} samples ({n / sr:.2f}s)")
-
-    logger.info(
-        f"[ghost] Step 1/4: Loaded {n} samples at {sr}Hz ({n / sr:.2f}s)"
-    )
 
     # ---- STEP 2: Segment and bloom ----
 
