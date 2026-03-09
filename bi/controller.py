@@ -98,7 +98,6 @@ class BIController:
             sp_b64 = self.input_buffer[-1].soft_prefix_b64
             generated_text = await self.llm_client.generate_text(
                 query=concatenated_text,
-                lang=self.config.get("common", {}).get("lang", "ja"),
                 soft_prefix_b64=sp_b64,
                 soft_prefix_len=P,
             )

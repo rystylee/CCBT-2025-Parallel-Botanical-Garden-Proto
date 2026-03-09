@@ -18,7 +18,7 @@
     "lang": "ja"
   },
   "stack_flow_llm": {
-    "max_tokens": 96
+    "max_tokens": 128
   },
   "stack_flow_tts": {},
   "system": {},
@@ -31,7 +31,7 @@
     "channels": 2,
     "sample_format": "s16",
     "enable_ffmpeg_convert": true,
-    "enable_rumble_effect": false,
+    "enable_rumble_effect": true,
     "temp_wav_dir": "./tmp",
     "_desc_ghost": "--- ゴースト蓄積 --- 各音節がスペクトル残像を残し、後半ほど倍音クラスターが厚くなる",
     "ghost": {
@@ -122,41 +122,35 @@
     }
   },
   "llm_settings": {
-    "en": {
-      "model": "TinySwallow-1.5B",
-      "system_prompt": "You are a poet. You always generate short poems.",
-      "translation_prompt": "Please translate the input text into English. Output only the translated results. input: ",
-      "instruction_prompt": "Please generate a continuation of the input text Only generate the poem. input: "
-    },
     "ja": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "あなたは詩人です。常に短い詩を日本語で生成します。前置きや説明は一切書かず、詩の本文のみを出力してください。",
-      "translation_prompt": "入力テキストを日本語に翻訳してください。翻訳した結果のみを出力してください。input: ",
-      "instruction_prompt": "詩の続きを日本語で書いてください。詩の本文のみを出力してください。前置き・説明・返答は不要です。input: "
+      "system_prompt": "植物の翻訳者。森林の詩を短い単語で紡ぐ。",
+      "instruction_prompt": "続き: "
     },
-    "zh": {
+    "en": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "你是诗人。你总是在用中文生成短诗。",
-      "translation_prompt": "请将输入文本翻译成中文。请仅输出翻译结果。input: ",
-      "instruction_prompt": "请用中文生成输入文本后续的短诗。请勿包含多余文字，仅输出诗歌部分。input: "
+      "system_prompt": "Translator of plants. String short words about forests.",
+      "instruction_prompt": "continue: "
     },
     "fr": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "Vous êtes un poète. Vous générez toujours de courts poèmes en français.",
-      "translation_prompt": "Traduisez le texte saisi en français. Veuillez afficher uniquement le résultat de la traduction. input: ",
-      "instruction_prompt": "Veuillez générer une suite du texte saisi avec 2-3 tokens de mots poétiques en français. Ne génère que le poème, sans phrases supplémentaires. input: "
+      "system_prompt": "Traducteur des plantes. Enchaîner de courts mots sur les forêts.",
+      "instruction_prompt": "suite: "
     },
     "fa": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "شما یک شاعر هستید. همیشه اشعار کوتاه به زبان فارسی بسازید.",
-      "translation_prompt": "متن ورودی را به فارسی ترجمه کنید. فقط نتیجه ترجمه را خروجی دهید. input: ",
-      "instruction_prompt": "لطفاً ادامه متن ورودی را به صورت شعر کوتاه فارسی بنویسید. فقط شعر را خروجی دهید. input: "
+      "system_prompt": "مترجم گیاهان. کلمات کوتاه درباره جنگل.",
+      "instruction_prompt": "ادامه: "
     },
     "ar": {
       "model": "TinySwallow-1.5B",
-      "system_prompt": "أنت شاعر. تقوم دائماً بإنشاء قصائد قصيرة باللغة العربية.",
-      "translation_prompt": "ترجم النص المُدخل إلى العربية. أخرج نتيجة الترجمة فقط. input: ",
-      "instruction_prompt": "من فضلك اكتب تكملة للنص المُدخل كقصيدة قصيرة بالعربية. أخرج القصيدة فقط. input: "
+      "system_prompt": "مترجم النباتات. كلمات قصيرة عن الغابات.",
+      "instruction_prompt": "تابع: "
+    },
+    "zh": {
+      "model": "TinySwallow-1.5B",
+      "system_prompt": "植物的翻译者。用短词串联森林之诗。",
+      "instruction_prompt": "续: "
     }
   }
 }

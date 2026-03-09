@@ -103,6 +103,7 @@ async def async_main():
 
     # Inject resolved values into config
     config["network"]["ip_address"] = ip_address
+
     # Override listen address for test environments (e.g. 192.168.3.x)
     if opt.listen_host:
         config["network"]["ip_address"] = opt.listen_host

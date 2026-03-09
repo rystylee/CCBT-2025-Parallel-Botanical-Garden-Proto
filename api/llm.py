@@ -34,7 +34,6 @@ class StackFlowLLMClient:
         self.model = LLM_SETTINGS.get(lang).get("model")
         self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
         self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
-        self.translation_prompt = LLM_SETTINGS.get(lang).get("translation_prompt")
         self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
 
         logger.info("[LLM info]")
@@ -42,16 +41,21 @@ class StackFlowLLMClient:
         logger.info(f"model: {self.model}")
         logger.info(f"max_tokens: {self.max_tokens}")
         logger.info(f"system_prompt: {self.system_prompt}")
-        logger.info(f"translation_prompt: {self.translation_prompt}")
         logger.info(f"instruction_prompt: {self.instruction_prompt}")
         logger.info("")
 
     async def generate_text(
-        self, query: str, lang: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0
+        self, query: str, soft_prefix_b64: str | None = None, soft_prefix_len: int = 0
     ) -> str:
         logger.info(f"query: {query}")
-        translated_query = await asyncio.to_thread(self._translate_sync, query, lang)
-        logger.info(f"translated_query: {translated_query}")
+
+        # Input is always Japanese; translate to device language if needed
+        if self.lang != "ja":
+            translated_query = await asyncio.to_thread(self._translate_sync, query)
+            logger.info(f"translated ({self.lang}): {translated_query}")
+        else:
+            translated_query = query
+
         prompt = self.instruction_prompt + translated_query
         logger.info(f"prompt: {prompt}")
         if soft_prefix_b64 is not None:
@@ -142,38 +146,65 @@ class StackFlowLLMClient:
             "data": data_obj,
         }
 
-    def _translate_sync(self, query: str, lang: str) -> str:
-        """Synchronous translation (called via asyncio.to_thread)."""
+    def _translate_sync(self, query: str) -> str:
+        """Translate from Japanese to device language (called via asyncio.to_thread)."""
         try:
-            result = argostranslate.translate.translate(query, from_code=lang, to_code=self.lang)
+            result = argostranslate.translate.translate(query, from_code="ja", to_code=self.lang)
             return result
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"Translation ja->{self.lang} failed: {e}")
             return query
 
     def _postprocess(self, text: str) -> str:
         from api.utils import load_ng_words
 
+        # Remove role prefix (e.g. "詩人:")
         if ":" in text:
             idx = text.find(":")
             text = text[idx + 1:]
 
+        # Remove preamble lines, take first meaningful line only
         preamble_keywords = load_ng_words()
-        lines = text.splitlines()
-        cleaned_lines = []
-        preamble_done = False
-        for line in lines:
+        for line in text.splitlines():
             stripped = line.strip()
-            if not preamble_done:
-                if stripped == "":
-                    continue
-                is_preamble = any(kw in stripped for kw in preamble_keywords)
-                if is_preamble:
-                    continue
-                else:
-                    preamble_done = True
-                    cleaned_lines.append(line)
-            else:
-                cleaned_lines.append(line)
+            if stripped == "":
+                continue
+            if any(kw in stripped for kw in preamble_keywords):
+                continue
+            # Found first valid line
+            return self._truncate(stripped)
 
-        return "\n".join(cleaned_lines).strip()
+        return ""
+
+    # --- Character limit per language (ja 10 chars ≈ en/fr 25 chars ≈ fa/ar 20 chars) ---
+    _MAX_CHARS = {"ja": 10, "zh": 10, "en": 25, "fr": 25, "fa": 20, "ar": 20}
+    _BREAKS_CJK = ["。", "、", "　", " ", "が", "の", "に", "を", "で", "と", "は", "も"]
+    _BREAKS_LATIN = [" ", ",", ".", ";"]
+    _BREAKS_RTL = [" ", "،", ".", "؛"]
+
+    def _truncate(self, text: str) -> str:
+        """Truncate text to appropriate length with natural break points."""
+        max_chars = self._MAX_CHARS.get(self.lang, 25)
+        if len(text) <= max_chars:
+            return text
+
+        cut = text[:max_chars]
+
+        if self.lang in ("ja", "zh"):
+            breaks = self._BREAKS_CJK
+        elif self.lang in ("fa", "ar"):
+            breaks = self._BREAKS_RTL
+        else:
+            breaks = self._BREAKS_LATIN
+
+        # Find last natural break point (not too early)
+        min_pos = max_chars // 3
+        best = -1
+        for sep in breaks:
+            idx = cut.rfind(sep)
+            if idx > min_pos:
+                best = max(best, idx + len(sep))
+
+        if best > 0:
+            return cut[:best].strip()
+        return cut.strip()
