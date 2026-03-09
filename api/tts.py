@@ -378,7 +378,7 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
         ghost_wav_path = final_wav_path
 
     # Apply harmonic pitch shift
-    _apply_pitch_shift(final_wav_path, audio_config)
+    _apply_pitch_shift(raw_wav_path, audio_config)
 
     process_voice(
         in_wav=raw_wav_path,
