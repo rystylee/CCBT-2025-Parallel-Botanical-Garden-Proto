@@ -65,6 +65,9 @@ class StackFlowLLMClient:
         send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
         output = await asyncio.to_thread(self._inference_sync, send_data)
 
+        output = self._postprocess(output)
+        output = self._remove_input_echo(output, query)
+
         # Post-generation: translate Japanese output to device language
         if self.lang != "ja" and output:
             ja_text = output
@@ -204,6 +207,41 @@ class StackFlowLLMClient:
             return self._truncate(stripped)
 
         return ""
+
+    def _remove_input_echo(self, output: str, query: str) -> str:
+            """Remove words/phrases from output that overlap with input query."""
+            if not output or not query:
+                return output
+
+            original = output
+
+            # 1. Strip if output starts with input (full echo)
+            if output.startswith(query):
+                output = output[len(query):].strip()
+
+            # 2. Remove overlapping suffix-prefix
+            #    e.g. query="この森には" output="森には闇が" → "闇が"
+            for i in range(1, len(query)):
+                suffix = query[i:]
+                if output.startswith(suffix):
+                    output = output[len(suffix):].strip()
+                    break
+
+            # 3. Remove exact phrase matches (2+ chars) from input
+            if len(query) >= 2:
+                for length in range(len(query), 1, -1):
+                    for start in range(len(query) - length + 1):
+                        phrase = query[start:start + length]
+                        if phrase in output:
+                            output = output.replace(phrase, "").strip()
+                            break
+                    if output != original:
+                        break
+
+            if output != original:
+                logger.info(f"Removed input echo: '{original}' -> '{output}'")
+
+            return output
 
     # --- Character limit per language (ja 10 chars ≈ en/fr 25 chars ≈ fa/ar 20 chars) ---
     _MAX_CHARS = {"ja": 10, "zh": 10, "en": 25, "fr": 25, "fa": 20, "ar": 20}
