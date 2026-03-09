@@ -18,7 +18,7 @@
     "lang": "ja"
   },
   "stack_flow_llm": {
-    "max_tokens": 32,
+    "max_tokens": 64,
     "soft_prefix_vals": [10]
   },
   "stack_flow_tts": {},
