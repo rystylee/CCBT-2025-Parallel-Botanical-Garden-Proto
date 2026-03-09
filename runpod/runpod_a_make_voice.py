@@ -4,17 +4,16 @@
 RunPod 上で動作。osc/ ディレクトリに到着した JSON ファイルを監視し、
 テキスト → MeloTTS(WAV生成) → Seed-VC(声質変換) のパイプラインを実行する。
 
-環境変数で設定を上書き可能:
-    OSC_JSON_DIR   : JSON監視ディレクトリ (default: /workspace/seed-vc/osc)
-    DRIVE_PATH     : Seed-VC リポジトリパス (default: /workspace/seed-vc)
-    TTS_DIR        : MeloTTS出力先 (default: /workspace/seed-vc/tts_out)
-    OUT_DIR        : 最終出力先 (default: /workspace/seed-vc/outputs)
-    TARGET_AUDIO   : 声質変換ターゲット音声 (default: /workspace/nainiku.mp3)
-    INFER_SCRIPT   : inference_v2.py のパス
-    POLL_SEC       : ポーリング間隔秒 (default: 0.2)
-    BATCH_MODE     : 1=バッチ処理, 0=1件ずつ (default: 1)
+パスは runpod_config.json の "runpod" セクションから読み込み。
+環境変数が設定されていればそちらを優先する。
+
+使い方:
+    python3 runpod_a_make_voice.py
+    python3 runpod_a_make_voice.py --config /path/to/runpod_config.json
+    BATCH_MODE=0 python3 runpod_a_make_voice.py   # 1件ずつ処理
 """
 
+import argparse
 import json
 import os
 import re
@@ -26,22 +25,66 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-# ===== 設定 =====
-OSC_JSON_DIR = Path(os.getenv("OSC_JSON_DIR", "/workspace/seed-vc/osc"))
-DRIVE_PATH   = Path(os.getenv("DRIVE_PATH", "/workspace/seed-vc"))
 
-TTS_DIR      = Path(os.getenv("TTS_DIR", str(DRIVE_PATH / "tts_out")))
-OUT_DIR      = Path(os.getenv("OUT_DIR", str(DRIVE_PATH / "outputs")))
+# ===== 設定読み込み =====
 
-TARGET_AUDIO = Path(os.getenv("TARGET_AUDIO", "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3"))
-INFER_SCRIPT = Path(os.getenv("INFER_SCRIPT", str(DRIVE_PATH / "inference_v2.py")))
+def load_config(config_path: str | None = None) -> dict:
+    """runpod_config.json を読み込む。見つからなければ空dictを返す。"""
+    candidates = []
+    if config_path:
+        candidates.append(Path(config_path))
+    # スクリプトと同じディレクトリ → 1つ上のディレクトリ
+    candidates += [
+        Path(__file__).parent / "runpod_config.json",
+        Path(__file__).parent.parent / "runpod_config.json",
+    ]
+    for p in candidates:
+        if p.exists():
+            log(f"config読み込み: {p}")
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+    log("⚠️  runpod_config.json が見つかりません (デフォルト値を使用)")
+    return {}
 
-POLL_SEC     = float(os.getenv("POLL_SEC", "0.2"))
-BATCH_MODE   = os.getenv("BATCH_MODE", "1") == "1"
 
-PROCESSED_DIR = OSC_JSON_DIR / "processed"
-FAILED_DIR    = OSC_JSON_DIR / "failed"
+def resolve_paths(cfg: dict) -> dict:
+    """config の runpod セクション + 環境変数 → パス辞書を返す。
+    優先順位: 環境変数 > config > ハードコードデフォルト
+    """
+    rp = cfg.get("runpod", {})
 
+    def pick(env_key: str, config_key: str, default: str) -> Path:
+        return Path(os.getenv(env_key) or rp.get(config_key) or default)
+
+    seed_vc_dir = pick("DRIVE_PATH", "seed_vc_dir", "/root/dev/seed-vc")
+
+    return {
+        "osc_json_dir": pick("OSC_JSON_DIR", "osc_json_dir", str(seed_vc_dir / "osc")),
+        "seed_vc_dir":  seed_vc_dir,
+        "tts_dir":      pick("TTS_DIR", "tts_out_dir", str(seed_vc_dir / "tts_out")),
+        "out_dir":      pick("OUT_DIR", "vc_out_dir", str(seed_vc_dir / "outputs")),
+        "target_audio": pick("TARGET_AUDIO", "target_audio",
+                             "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3"),
+        "infer_script": pick("INFER_SCRIPT", "",  str(seed_vc_dir / "inference_v2.py")),
+    }
+
+
+# ===== グローバル (main で初期化) =====
+
+OSC_JSON_DIR: Path
+DRIVE_PATH: Path
+TTS_DIR: Path
+OUT_DIR: Path
+TARGET_AUDIO: Path
+INFER_SCRIPT: Path
+PROCESSED_DIR: Path
+FAILED_DIR: Path
+
+POLL_SEC   = float(os.getenv("POLL_SEC", "0.2"))
+BATCH_MODE = os.getenv("BATCH_MODE", "1") == "1"
+
+
+# ===== ユーティリティ =====
 
 def log(msg: str):
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -92,6 +135,8 @@ def extract_text(payload: dict) -> str:
     return text
 
 
+# ===== パイプライン =====
+
 def run_melo(text: str, out_wav: Path):
     """MeloTTS でテキスト→WAV生成"""
     out_wav.parent.mkdir(parents=True, exist_ok=True)
@@ -136,6 +181,8 @@ def move_safe(src: Path, dst_dir: Path):
         dst = dst_dir / f"{src.stem}_{ts}{src.suffix}"
     shutil.move(str(src), str(dst))
 
+
+# ===== 処理ループ =====
 
 def process_batch(json_paths: list[Path]):
     """複数JSONをまとめて処理"""
@@ -240,16 +287,13 @@ def verify_prerequisites():
     """起動前チェック"""
     errors = []
 
-    # melo コマンド
     r = subprocess.run(["which", "melo"], capture_output=True, text=True)
     if r.returncode != 0:
         errors.append("melo コマンドが見つかりません (MeloTTS未インストール)")
 
-    # inference_v2.py
     if not INFER_SCRIPT.exists():
         errors.append(f"inference_v2.py が見つかりません: {INFER_SCRIPT}")
 
-    # target audio
     if not TARGET_AUDIO.exists():
         errors.append(f"ターゲット音声が見つかりません: {TARGET_AUDIO}")
 
@@ -264,21 +308,45 @@ def verify_prerequisites():
     return True
 
 
+# ===== メイン =====
+
 def main():
+    global OSC_JSON_DIR, DRIVE_PATH, TTS_DIR, OUT_DIR
+    global TARGET_AUDIO, INFER_SCRIPT, PROCESSED_DIR, FAILED_DIR
+
+    parser = argparse.ArgumentParser(description="RunPod Voice Worker")
+    parser.add_argument("--config", default=None, help="runpod_config.json のパス")
+    args = parser.parse_args()
+
+    # config 読み込み → パス解決
+    cfg = load_config(args.config)
+    paths = resolve_paths(cfg)
+
+    OSC_JSON_DIR  = paths["osc_json_dir"]
+    DRIVE_PATH    = paths["seed_vc_dir"]
+    TTS_DIR       = paths["tts_dir"]
+    OUT_DIR       = paths["out_dir"]
+    TARGET_AUDIO  = paths["target_audio"]
+    INFER_SCRIPT  = paths["infer_script"]
+    PROCESSED_DIR = OSC_JSON_DIR / "processed"
+    FAILED_DIR    = OSC_JSON_DIR / "failed"
+
     ensure_dirs()
 
     log("=" * 50)
     log("RunPod Voice Worker 起動")
-    log(f"  JSON監視: {OSC_JSON_DIR}")
-    log(f"  TTS出力:  {TTS_DIR}")
-    log(f"  VC出力:   {OUT_DIR}")
+    log(f"  JSON監視:  {OSC_JSON_DIR}")
+    log(f"  Seed-VC:   {DRIVE_PATH}")
+    log(f"  TTS出力:   {TTS_DIR}")
+    log(f"  VC出力:    {OUT_DIR}")
     log(f"  ターゲット: {TARGET_AUDIO}")
+    log(f"  推論:      {INFER_SCRIPT}")
     log(f"  モード:    {'バッチ' if BATCH_MODE else '1件ずつ'}")
     log(f"  ポーリング: {POLL_SEC}s")
     log("=" * 50)
 
     if not verify_prerequisites():
-        log("前提条件を満たしていません。runpod_manager.py setup を実行してください。")
+        log("前提条件を満たしていません。")
         sys.exit(1)
 
     log("ファイル監視開始...")
