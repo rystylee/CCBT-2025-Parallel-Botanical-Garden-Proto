@@ -19,12 +19,16 @@
   },
   "stack_flow_llm": {
     "max_tokens": 64,
-    "soft_prefix_vals": [10]
+    "_max_tokens_note": "LLMが1回の推論で生成する最大トークン数。64=短文(1-2行)、96=中程度、128=長め。小さすぎると何も出ない場合あり",
+    "soft_prefix_vals": [10],
+    "_soft_prefix_vals_note": "LLMのsoft prefix値の候補リスト。ランダムに1つ選ばれる。値が大きいほど生成に揺らぎが出る。通常トークン1個分≈0.03-0.08、現在の10は極めて強い"
   },
   "stack_flow_tts": {},
   "system": {},
   "audio": {
-    "_desc": "=== Accumulating Ghosts パイプライン === 声のスペクトル残像が蓄積する暗い倍音テクスチャー",
+    "_desc": "=== Accumulating Ghosts パイプライン ===",
+    "_desc_overview": "各音節がスペクトル残像(ゴースト)を残し、後半ほど倍音クラスターが厚くなる暗い倍音テクスチャー。パイプライン: TTS生WAV → セグメント分割 → ゴースト蓄積 → ギャップフィル → ミックス → サチュレーション → リバーブ → EQ → コンプ → ステレオ化 → 速度変更",
+
     "playback_device": "dmixer",
     "tinyplay_card": 0,
     "tinyplay_device": 1,
@@ -33,74 +37,122 @@
     "sample_format": "s16",
     "enable_ffmpeg_convert": true,
     "enable_rumble_effect": true,
+    "_enable_rumble_effect_note": "trueでconvert_with_voice_fxを使用(ghost/rumbleモード)。falseだと単純フォーマット変換のみ(全エフェクト無効)",
     "temp_wav_dir": "./tmp",
-    "_desc_ghost": "--- ゴースト蓄積 --- 各音節がスペクトル残像を残し、後半ほど倍音クラスターが厚くなる",
+
+    "_desc_ghost": "--- ゴースト蓄積 --- 各音節が発話後にスペクトル残像を残す。後の音節ほどカットオフが下がり暗い倍音になる",
     "ghost": {
-      "linger_s": 2.5,
-      "level": 0.42,
-      "cutoff_start": 550,
+      "linger_s": 3.5,
+      "_linger_s_note": "各ゴーストが残響する秒数。長い=残像が長く尾を引く(2-5秒が実用範囲)。短い=パーカッシブ。長い=ドローン的",
+      "level": 0.72,
+      "_level_note": "ゴースト層の音量(声のピークに対する比率)。0=ゴーストなし、0.3=控えめ、0.5=声と同程度、1.0=ゴーストが支配",
+      "cutoff_start": 950,
+      "_cutoff_start_note": "最初のゴーストのローパスフィルタ周波数(Hz)。高い=明るい残像、低い=暗い残像。550=やや暗め",
       "cutoff_decay": 12,
-      "resonance": 0.3
+      "_cutoff_decay_note": "音節が進むごとにカットオフが下がる量(Hz/segment)。大きい=後半が急速に暗くなる。0=全ゴースト同じ明るさ",
+      "resonance": 0.3,
+      "_resonance_note": "ダークフィルタの共振(0-1)。カットオフ付近を強調する。高い=金属的・鳴り響く、低い=滑らか。0.3=自然、0.7=エッジが立つ"
     },
-    "_desc_speed": "--- 再生速度 --- mode: atempo(ピッチ維持 50%~10000%) / tape(ピッチ連動) / off  value: 固定値(nullだとランダムに), range: min/maxランダム",
-        "speed": {
-          "mode": "atempo",
-          "value": 0.8,
-          "range": {"min": 0.8, "max": 1.2}
+
+    "_desc_speed": "--- 再生速度 --- ghostエフェクト処理後にFFmpegで速度変更",
+    "speed": {
+      "mode": "atempo",
+      "_mode_note": "atempo=ピッチ維持で速度のみ変更(タイムストレッチ)。tape=速度とピッチが連動(テープ速度式、遅い=低音)。off=速度変更なし",
+      "value": 0.8,
+      "_value_note": "固定速度値(倍率)。0.5=半速(2倍の長さ)、1.0=等速、2.0=倍速。nullにするとrangeからランダム。atempoは0.5-100の範囲制限あり",
+      "range": {"min": 0.5, "max": 1.3},
+      "_range_note": "valueがnullの時に使用。min-maxの範囲でランダム選択。毎回異なる速度になる"
     },
-    "_desc_seg": "--- セグメンテーション --- 音声をエネルギーベースで音節単位に分割",
+
+    "_desc_seg": "--- セグメンテーション --- TTS音声をエネルギーベースで音節単位に分割。ゴースト生成の単位になる",
     "segmentation": {
       "silence_threshold": 0.015,
+      "_silence_threshold_note": "無音判定の閾値(振幅比)。低い=小さい音もセグメントとして拾う、高い=はっきりした音のみ。0.01=敏感、0.05=鈍感",
       "min_segment_ms": 40,
-      "max_segment_ms": 280
+      "_min_segment_ms_note": "最小セグメント長(ms)。これより短い音は無視される。短すぎるとノイズを拾う",
+      "max_segment_ms": 280,
+      "_max_segment_ms_note": "最大セグメント長(ms)。これより長い音節は強制分割される。長母音の扱いに影響"
     },
-    "_desc_bloom": "--- セグメントブルーム --- 各音節のフェードイン/アウト",
+
+    "_desc_bloom": "--- セグメントブルーム --- 各音節のフェードイン/アウト。ぶつ切り感を防ぎ滑らかにする",
     "bloom": {
       "attack_ms": 25,
-      "release_ms": 60
+      "_attack_ms_note": "フェードイン時間(ms)。短い=パーカッシブ(5ms)、長い=ゆっくり立ち上がる(50ms)",
+      "release_ms": 60,
+      "_release_ms_note": "フェードアウト時間(ms)。短い=切れ味鋭い、長い=余韻が残る"
     },
-    "_desc_gap": "--- ギャップフィル --- 音節間をスペクトルモーフで埋める",
+
+    "_desc_gap": "--- ギャップフィル --- 音節間の無音区間をスペクトルモーフで埋める。前後の音節の倍音を補間して滑らかに繋ぐ",
     "gap_fill": {
       "level": 0.25,
-      "cutoff": 500
+      "_level_note": "ギャップフィルの音量(声のRMSに対する比率)。0=ギャップ無音、0.25=控えめに埋める、0.5=かなり埋める",
+      "cutoff": 500,
+      "_cutoff_note": "ギャップフィルのローパスカットオフ(Hz)。低い=暗いモーフ音、高い=明るいモーフ音"
     },
-    "_desc_reverb": "--- Schroederリバーブ --- アルゴリズムリバーブ（aecho不使用）",
+
+    "_desc_reverb": "--- Schroederリバーブ --- アルゴリズムリバーブ(全帰還コムフィルタ+オールパス)",
     "reverb": {
       "room_size": 0.82,
+      "_room_size_note": "部屋の大きさ(0-1)。コムフィルタのフィードバック量。0.5=小さい部屋、0.8=ホール、0.95=大聖堂。高すぎると発振に注意",
       "damping": 0.45,
+      "_damping_note": "高域減衰(0-1)。リバーブの尾が暗くなる度合い。0=明るいリバーブ、0.7=暗いリバーブ、1.0=すぐ消える",
       "wet": 0.22,
-      "predelay_ms": 15
+      "_wet_note": "リバーブの混合量(0-1)。0=ドライ、0.2=自然な残響、0.5=リバーブ強め、1.0=リバーブのみ",
+      "predelay_ms": 15,
+      "_predelay_ms_note": "初期反射前の遅延(ms)。空間の大きさ感に影響。0=密着、15=小ホール、50=大空間"
     },
-    "_desc_mastering": "--- マスタリング --- テープサチュレーション+マルチバンドEQ+コンプレッサー",
+
+    "_desc_mastering": "--- マスタリング --- テープサチュレーション→マルチバンドEQ→コンプレッサーの順に適用",
     "mastering": {
       "saturation_drive": 0.2,
+      "_saturation_drive_note": "テープサチュレーション(tanhクリッピング)の強さ。0=クリーン、0.2=温かみ、0.5=はっきり歪み、1.0=激しい歪み",
       "low_boost_db": 2.5,
+      "_low_boost_db_note": "低域ブースト(dB)。200Hz以下を持ち上げる。0=フラット、3=温かい低音、6=重低音強調",
       "mid_cut_db": -1.5,
+      "_mid_cut_db_note": "中域カット(dB)。1-4kHz帯域。マイナス=中域を引っ込める(声のハリを抑える)、プラス=前に出す",
       "air_boost_db": 1.0,
+      "_air_boost_db_note": "高域ブースト(dB)。8kHz以上の空気感。0=フラット、1=軽い輝き、3=シャリシャリ",
       "comp_threshold_db": -16,
-      "comp_ratio": 2.5
+      "_comp_threshold_db_note": "コンプレッサー閾値(dB)。この音量を超えた部分が圧縮される。-10=軽い圧縮、-20=しっかり圧縮、-30=激しい圧縮",
+      "comp_ratio": 2.5,
+      "_comp_ratio_note": "コンプレッサー比率。2=穏やか、4=しっかり、10=リミッター的。閾値を超えた分が1/ratioに圧縮される"
     },
-    "_desc_stereo": "--- ステレオ --- Haas式デコリレーション",
+
+    "_desc_stereo": "--- ステレオ --- Haas式デコリレーション(左右に微小な遅延差をつけてステレオ感を出す)",
     "stereo_width": 0.25,
-    "_desc_global": "--- グローバルブルーム --- 全体のフェードイン/アウト",
+    "_stereo_width_note": "ステレオ幅(0-1)。0=モノラル、0.25=自然なステレオ、0.5=広い、1.0=極端に広い。左右の遅延差で実現",
+
+    "_desc_global": "--- グローバルブルーム --- 最終ミックス全体のフェードイン/アウト",
     "global_bloom": {
       "attack_s": 0.5,
-      "release_s": 0.4
+      "_attack_s_note": "全体のフェードイン時間(秒)。音声冒頭が無音から立ち上がる。0=即座に始まる、1.0=ゆっくり立ち上がる",
+      "release_s": 0.4,
+      "_release_s_note": "全体のフェードアウト時間(秒)。音声末尾の余韻。0=ぶつ切り、1.0=ゆっくり消える"
     },
-    "_desc_voice": "--- 声レベル --- 声の音量バランス",
+
+    "_desc_voice": "--- 声レベル --- ミックス内での声の音量バランス",
     "voice_level": 0.58,
-    "_desc_mode": "--- エフェクトモード --- ghost=蓄積ゴースト rumble=旧ランブル off=加工なし",
+    "_voice_level_note": "声の音量倍率。ゴースト+ギャップフィルに対する声の大きさ。0.3=声控えめ(ゴースト主体)、0.58=バランス、1.0=声が前に出る",
+
+    "_desc_mode": "--- エフェクトモード ---",
     "effect_mode": "ghost",
-    "_desc_text": "--- テキスト変換 --- ひらがな化＋母音伸ばし。elongation_mode: dash/vowel/mixed/off",
+    "_effect_mode_note": "ghost=蓄積ゴーストパイプライン、rumble=旧ランブル(ピッチシフト+サブオクターブ)、off=フォーマット変換のみ",
+
+    "_desc_text": "--- テキスト変換 --- TTS入力テキストのひらがな化＋母音伸ばし(日本語のみ適用)",
     "text_transform": {
       "enabled": true,
+      "_enabled_note": "テキスト変換の有効/無効",
       "to_hiragana": true,
+      "_to_hiragana_note": "カタカナ→ひらがな変換。pykakasi未インストール時は単純カタカナ置換のみ",
       "elongation_mode": "mixed",
+      "_elongation_mode_note": "母音伸ばしモード。dash=長音符(ー)、vowel=母音繰返し(ああ)、mixed=ランダム混合、off=伸ばしなし",
       "elongation_probability": 0.5,
+      "_elongation_probability_note": "各文字が伸ばされる確率(0-1)。0.3=たまに、0.5=半分、1.0=全て",
       "elongation_length": {
         "min": 2,
         "max": 5
-      }
+      },
+      "_elongation_length_note": "伸ばす長さの範囲(文字数)。min2-max5=「あ」→「ああ」~「あああああ」"
     }
   },
   "led_control": {
