@@ -66,7 +66,6 @@ class StackFlowLLMClient:
         output = await asyncio.to_thread(self._inference_sync, send_data)
 
         output = self._postprocess(output)
-        output = self._remove_input_echo(output, query)
 
         # Post-generation: translate Japanese output to device language
         if self.lang != "ja" and output:
@@ -187,7 +186,7 @@ class StackFlowLLMClient:
             logger.warning(f"Translation en->{self.lang} failed: {e}, falling back to English")
             return en_text
 
-    def _postprocess(self, text: str) -> str:
+    def _postprocess(self, text: str, query: str = "") -> str:
         from api.utils import load_ng_words
 
         # Remove role prefix (e.g. "詩人:")
@@ -195,18 +194,21 @@ class StackFlowLLMClient:
             idx = text.find(":")
             text = text[idx + 1:]
 
-        # Remove preamble lines, take first meaningful line only
+        # Remove preamble lines, collect all meaningful lines
         preamble_keywords = load_ng_words()
+        cleaned = ""
         for line in text.splitlines():
             stripped = line.strip()
             if stripped == "":
                 continue
-            if any(kw in stripped for kw in preamble_keywords):
+            if not cleaned and any(kw in stripped for kw in preamble_keywords):
                 continue
-            # Found first valid line
-            return self._truncate(stripped)
+            cleaned += stripped
 
-        return ""
+        # Remove input echo before truncation
+        cleaned = self._remove_input_echo(cleaned, query)
+
+        return self._truncate(cleaned)
 
     def _remove_input_echo(self, output: str, query: str) -> str:
             """Remove words/phrases from output that overlap with input query."""
