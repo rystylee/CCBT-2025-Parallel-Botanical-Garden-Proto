@@ -211,39 +211,31 @@ class StackFlowLLMClient:
         return self._truncate(cleaned)
 
     def _remove_input_echo(self, output: str, query: str) -> str:
-            """Remove words/phrases from output that overlap with input query."""
-            if not output or not query:
-                return output
+        """Remove input echo from the beginning of LLM output."""
+        if not output or not query:
+            return output
 
-            original = output
+        original = output
 
-            # 1. Strip if output starts with input (full echo)
-            if output.startswith(query):
-                output = output[len(query):].strip()
+        # 1. Full prefix match: query="この森には" output="この森には、古く..." → "古く..."
+        if output.startswith(query):
+            output = output[len(query):]
 
-            # 2. Remove overlapping suffix-prefix
-            #    e.g. query="この森には" output="森には闇が" → "闇が"
+        # 2. Partial overlap: query="この森には" output="森には闇が" → "闇が"
+        else:
             for i in range(1, len(query)):
                 suffix = query[i:]
                 if output.startswith(suffix):
-                    output = output[len(suffix):].strip()
+                    output = output[len(suffix):]
                     break
 
-            # 3. Remove exact phrase matches (2+ chars) from input
-            if len(query) >= 2:
-                for length in range(len(query), 1, -1):
-                    for start in range(len(query) - length + 1):
-                        phrase = query[start:start + length]
-                        if phrase in output:
-                            output = output.replace(phrase, "").strip()
-                            break
-                    if output != original:
-                        break
+        # Strip leading punctuation left after removal
+        output = output.lstrip("、。，．,. \t　*")
 
-            if output != original:
-                logger.info(f"Removed input echo: '{original}' -> '{output}'")
+        if output != original:
+            logger.info(f"Removed input echo: '{original}' -> '{output}'")
 
-            return output
+        return output
 
     # --- Character limit per language (ja 10 chars ≈ en/fr 25 chars ≈ fa/ar 20 chars) ---
     _MAX_CHARS = {"ja": 10, "zh": 10, "en": 25, "fr": 25, "fa": 20, "ar": 20}
