@@ -260,6 +260,55 @@ def convert_with_voice_fx(raw_wav_path: str, final_wav_path: str, audio_config: 
         ])
         logger.info(f"[voice_fx] mode=off, format conversion only")
 
+def _apply_speed_effect(in_wav: str, out_wav: str, audio_config: dict) -> None:
+    """Apply playback speed effect (atempo or tape-style)."""
+    speed_cfg = audio_config.get("speed", {})
+    speed_mode = speed_cfg.get("mode", "off")
+
+    if speed_mode == "off":
+        return
+
+    # Determine speed value: fixed or random range
+    fixed_val = speed_cfg.get("value")
+    if fixed_val is not None and fixed_val is not False:
+        speed = float(fixed_val)
+    else:
+        rng = speed_cfg.get("range", {"min": 0.8, "max": 1.2})
+        speed = random.uniform(rng["min"], rng["max"])
+
+    sr = audio_config.get("sample_rate", 48000)
+    ch = audio_config.get("channels", 2)
+    fmt = audio_config.get("sample_format", "s16")
+
+    if speed_mode == "atempo":
+        # Pitch-preserving speed change
+        # atempo only accepts 0.5-100.0, chain for extreme values
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", in_wav,
+            "-af", f"atempo={speed}",
+            "-ar", str(sr), "-ac", str(ch), "-sample_fmt", fmt,
+            out_wav,
+        ]
+    elif speed_mode == "tape":
+        # Tape-style: pitch shifts with speed (resample trick)
+        new_rate = int(sr * speed)
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", in_wav,
+            "-af", f"asetrate={new_rate},aresample={sr}",
+            "-ar", str(sr), "-ac", str(ch), "-sample_fmt", fmt,
+            out_wav,
+        ]
+    else:
+        logger.warning(f"[speed_fx] Unknown mode: {speed_mode}, skipping")
+        import shutil
+        shutil.copy2(in_wav, out_wav)
+        return
+
+    logger.info(f"[speed_fx] mode={speed_mode} speed={speed:.3f}")
+    import subprocess
+    subprocess.run(cmd, check=True)
 
 def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
     """Accumulating Ghosts pipeline."""
@@ -280,6 +329,14 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
         f"ghost_linger={ghost_cfg.get('linger_s', 2.5)}s "
         f"reverb_wet={reverb_cfg.get('wet', 0.22)} seed={seed}"
     )
+    # Ghost processing to intermediate or final path
+    speed_cfg = audio_config.get("speed", {})
+    speed_mode = speed_cfg.get("mode", "off")
+
+    if speed_mode != "off":
+        ghost_wav_path = final_wav_path + ".ghost.wav"
+    else:
+        ghost_wav_path = final_wav_path
 
     process_voice(
         in_wav=raw_wav_path,
@@ -316,6 +373,11 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
         seed=seed,
     )
 
+    # Apply speed effect
+    if speed_mode != "off":
+        _apply_speed_effect(ghost_wav_path, final_wav_path, audio_config)
+        if os.path.exists(ghost_wav_path):
+            os.remove(ghost_wav_path)
 
 def _convert_rumble(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
     """Legacy rumble pipeline (v2)."""
