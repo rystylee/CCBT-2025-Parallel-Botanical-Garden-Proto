@@ -330,12 +330,12 @@ def _apply_pitch_shift(in_wav: str, audio_config: dict) -> None:
         logger.info("[pitch] semitones=0, skipping")
         return
 
-    # Use actual input file sample rate, not config output rate
+    import wave
     with wave.open(in_wav, 'rb') as wf:
         input_sr = wf.getframerate()
+
     ratio = 2 ** (semitones / 12.0)
     shifted_rate = int(input_sr * ratio)
-
 
     tmp_path = in_wav + ".pitch_tmp.wav"
     ch = audio_config.get("channels", 2)
@@ -343,11 +343,11 @@ def _apply_pitch_shift(in_wav: str, audio_config: dict) -> None:
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", in_wav,
-        "-af", f"asetrate={shifted_rate},aresample={sr}",
-        "-ar", str(sr), "-ac", str(ch), "-sample_fmt", fmt,
+        "-af", f"asetrate={shifted_rate},aresample={input_sr}",
+        "-ar", str(input_sr), "-ac", str(ch), "-sample_fmt", fmt,
         tmp_path,
     ]
-    logger.info(f"[pitch] semitones={semitones:+d} ratio={ratio:.4f} rate={shifted_rate}")
+    logger.info(f"[pitch] semitones={semitones:+d} ratio={ratio:.4f} input_sr={input_sr} rate={shifted_rate}")
 
     import subprocess
     subprocess.run(cmd, check=True)
