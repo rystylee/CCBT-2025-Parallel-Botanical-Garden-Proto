@@ -20,7 +20,7 @@
   "stack_flow_llm": {
     "max_tokens": 64,
     "_max_tokens_note": "LLMが1回の推論で生成する最大トークン数。64=短文(1-2行)、96=中程度、128=長め。小さすぎると何も出ない場合あり",
-    "soft_prefix_vals": [10],
+    "soft_prefix_vals": [20],
     "_soft_prefix_vals_note": "LLMのsoft prefix値の候補リスト。ランダムに1つ選ばれる。値が大きいほど生成に揺らぎが出る。通常トークン1個分≈0.03-0.08、現在の10は極めて強い"
   },
   "stack_flow_tts": {},
