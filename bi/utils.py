@@ -5,9 +5,8 @@ import struct
 from loguru import logger
 
 P = 1  # num _prefix_token
-# H = 896  # tokens_embed_size
 H = 1536  # tokens_embed_size
-VALS = [0.0, 1e-4, 1e-3, 1e-2]
+VALS = [0.0, 1e-4, 1e-3, 1e-2]  # default fallback
 
 
 def f32_to_bf16_u16(x: float) -> int:
@@ -23,8 +22,11 @@ def make_soft_prefix_b64_constant(P: int, H: int, val: float) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
-def make_random_soft_prefix_b64() -> str:
-    v = random.choice(VALS)
+def make_random_soft_prefix_b64(config: dict | None = None) -> str:
+    vals = VALS
+    if config is not None:
+        vals = config.get("stack_flow_llm", {}).get("soft_prefix_vals", VALS)
+    v = random.choice(vals)
     logger.info(f"Selected soft prefix value: {v}")
     sp_b64 = make_soft_prefix_b64_constant(P, H, v)
     return sp_b64
