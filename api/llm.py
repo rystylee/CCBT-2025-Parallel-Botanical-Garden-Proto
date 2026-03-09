@@ -91,6 +91,19 @@ class StackFlowLLMClient:
 
         return output
 
+    @staticmethod
+    def _decode_soft_prefix_val(b64: str) -> float:
+        """Decode the first BF16 value from a soft_prefix base64 string."""
+        import base64, struct
+        try:
+            raw = base64.b64decode(b64)
+            u16 = struct.unpack("<H", raw[:2])[0]
+            # BF16 -> float32: shift left 16 bits
+            f32 = struct.unpack("<f", struct.pack("<I", u16 << 16))[0]
+            return f32
+        except Exception:
+            return -1.0
+
     def _init(self) -> str:
         logger.info("Setup LLM...")
         init_data = self._create_init_data()
