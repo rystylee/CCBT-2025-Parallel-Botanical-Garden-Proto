@@ -8,6 +8,7 @@ from openai import OpenAI
 
 from api.utils import TTS_SETTINGS
 from api.text_transform import transform_text
+import wave
 
 # ========== Utility Functions for WAV File Generation & Playback ==========
 
@@ -329,9 +330,12 @@ def _apply_pitch_shift(in_wav: str, audio_config: dict) -> None:
         logger.info("[pitch] semitones=0, skipping")
         return
 
-    sr = audio_config.get("sample_rate", 48000)
+    # Use actual input file sample rate, not config output rate
+    with wave.open(in_wav, 'rb') as wf:
+        input_sr = wf.getframerate()
     ratio = 2 ** (semitones / 12.0)
-    shifted_rate = int(sr * ratio)
+    shifted_rate = int(input_sr * ratio)
+
 
     tmp_path = in_wav + ".pitch_tmp.wav"
     ch = audio_config.get("channels", 2)
