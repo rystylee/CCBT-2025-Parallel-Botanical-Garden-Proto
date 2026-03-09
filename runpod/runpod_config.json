@@ -17,15 +17,16 @@
   "runpod": {
     "_desc": "RunPod上のパス構成",
     "workspace": "/workspace",
-    "repo_dir": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto",
-    "seed_vc_dir": "/root/dev/seed-vc",
-    "melo_dir": "/root/dev/MeloTTS",
-    "osc_json_dir": "/root/dev/seed-vc/osc",
-    "tts_out_dir": "/root/dev/seed-vc/tts_out",
-    "vc_out_dir": "/root/dev/seed-vc/outputs",
-    "audio_dir": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio",
-    "target_audio": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3",
-    "worker_script": "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/runpod/runpod_a_make_voice.py"
+    "repo_dir": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto",
+    "seed_vc_dir": "/workspace/dev/seed-vc",
+    "melo_dir": "/workspace/dev/MeloTTS",
+    "melo_bin": "/workspace/dev/MeloTTS/.venv/bin/melo",
+    "osc_json_dir": "/workspace/dev/seed-vc/osc",
+    "tts_out_dir": "/workspace/dev/seed-vc/tts_out",
+    "vc_out_dir": "/workspace/dev/seed-vc/outputs",
+    "audio_dir": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio",
+    "target_audio": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3",
+    "worker_script": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/runpod/runpod_a_make_voice.py"
   },
 
   "ubuntu_sender": {

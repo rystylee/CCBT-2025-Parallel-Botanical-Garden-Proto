@@ -56,7 +56,7 @@ def resolve_paths(cfg: dict) -> dict:
     def pick(env_key: str, config_key: str, default: str) -> Path:
         return Path(os.getenv(env_key) or rp.get(config_key) or default)
 
-    seed_vc_dir = pick("DRIVE_PATH", "seed_vc_dir", "/root/dev/seed-vc")
+    seed_vc_dir = pick("DRIVE_PATH", "seed_vc_dir", "/workspace/dev/seed-vc")
 
     return {
         "osc_json_dir": pick("OSC_JSON_DIR", "osc_json_dir", str(seed_vc_dir / "osc")),
@@ -64,8 +64,9 @@ def resolve_paths(cfg: dict) -> dict:
         "tts_dir":      pick("TTS_DIR", "tts_out_dir", str(seed_vc_dir / "tts_out")),
         "out_dir":      pick("OUT_DIR", "vc_out_dir", str(seed_vc_dir / "outputs")),
         "target_audio": pick("TARGET_AUDIO", "target_audio",
-                             "/root/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3"),
+                             "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3"),
         "infer_script": pick("INFER_SCRIPT", "",  str(seed_vc_dir / "inference_v2.py")),
+        "melo_bin":     pick("MELO_BIN", "melo_bin", "melo"),
     }
 
 
@@ -77,6 +78,7 @@ TTS_DIR: Path
 OUT_DIR: Path
 TARGET_AUDIO: Path
 INFER_SCRIPT: Path
+MELO_BIN: Path
 PROCESSED_DIR: Path
 FAILED_DIR: Path
 
@@ -140,11 +142,12 @@ def extract_text(payload: dict) -> str:
 def run_melo(text: str, out_wav: Path):
     """MeloTTS でテキスト→WAV生成"""
     out_wav.parent.mkdir(parents=True, exist_ok=True)
-    cmd = ["melo", text, str(out_wav), "-l", "JP"]
+    cmd = [str(MELO_BIN), text, str(out_wav), "-l", "JP"]
     log(f"MeloTTS: {text[:60]}... → {out_wav.name}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"MeloTTS failed: {result.stderr[:200]}")
+        log(f"MeloTTS stderr:\n{result.stderr}")
+        raise RuntimeError(f"MeloTTS failed (returncode={result.returncode})")
     if not out_wav.exists() or out_wav.stat().st_size == 0:
         raise RuntimeError(f"MeloTTS produced empty/no file: {out_wav}")
 
@@ -170,7 +173,8 @@ def run_infer(source_wav: Path):
     log(f"Seed-VC: {source_wav.name} → {OUT_DIR}")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(DRIVE_PATH))
     if result.returncode != 0:
-        raise RuntimeError(f"Seed-VC failed: {result.stderr[:300]}")
+        log(f"Seed-VC stderr:\n{result.stderr}")
+        raise RuntimeError(f"Seed-VC failed (returncode={result.returncode})")
 
 
 def move_safe(src: Path, dst_dir: Path):
@@ -287,9 +291,9 @@ def verify_prerequisites():
     """起動前チェック"""
     errors = []
 
-    r = subprocess.run(["which", "melo"], capture_output=True, text=True)
-    if r.returncode != 0:
-        errors.append("melo コマンドが見つかりません (MeloTTS未インストール)")
+    r = subprocess.run([str(MELO_BIN), "--help"], capture_output=True, text=True)
+    if r.returncode != 0 and not MELO_BIN.exists():
+        errors.append(f"melo が見つかりません: {MELO_BIN}")
 
     if not INFER_SCRIPT.exists():
         errors.append(f"inference_v2.py が見つかりません: {INFER_SCRIPT}")
@@ -312,7 +316,7 @@ def verify_prerequisites():
 
 def main():
     global OSC_JSON_DIR, DRIVE_PATH, TTS_DIR, OUT_DIR
-    global TARGET_AUDIO, INFER_SCRIPT, PROCESSED_DIR, FAILED_DIR
+    global TARGET_AUDIO, INFER_SCRIPT, MELO_BIN, PROCESSED_DIR, FAILED_DIR
 
     parser = argparse.ArgumentParser(description="RunPod Voice Worker")
     parser.add_argument("--config", default=None, help="runpod_config.json のパス")
@@ -328,6 +332,7 @@ def main():
     OUT_DIR       = paths["out_dir"]
     TARGET_AUDIO  = paths["target_audio"]
     INFER_SCRIPT  = paths["infer_script"]
+    MELO_BIN      = paths["melo_bin"]
     PROCESSED_DIR = OSC_JSON_DIR / "processed"
     FAILED_DIR    = OSC_JSON_DIR / "failed"
 
@@ -340,6 +345,7 @@ def main():
     log(f"  TTS出力:   {TTS_DIR}")
     log(f"  VC出力:    {OUT_DIR}")
     log(f"  ターゲット: {TARGET_AUDIO}")
+    log(f"  MeloTTS:   {MELO_BIN}")
     log(f"  推論:      {INFER_SCRIPT}")
     log(f"  モード:    {'バッチ' if BATCH_MODE else '1件ずつ'}")
     log(f"  ポーリング: {POLL_SEC}s")
