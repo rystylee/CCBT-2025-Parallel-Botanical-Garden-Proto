@@ -340,7 +340,7 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
 
     process_voice(
         in_wav=raw_wav_path,
-        out_wav=final_wav_path,
+        out_wav=ghost_wav_path,
         ghost_linger_s=ghost_cfg.get("linger_s", 2.5),
         ghost_level=ghost_cfg.get("level", 0.42),
         ghost_cutoff_start=ghost_cfg.get("cutoff_start", 550),
