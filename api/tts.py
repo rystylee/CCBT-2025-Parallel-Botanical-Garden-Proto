@@ -281,12 +281,18 @@ def _apply_speed_effect(in_wav: str, out_wav: str, audio_config: dict) -> None:
     fmt = audio_config.get("sample_format", "s16")
 
     if speed_mode == "atempo":
-        # Pitch-preserving speed change
-        # atempo only accepts 0.5-100.0, chain for extreme values
+        # atempo only accepts 0.5-100.0; chain filters for values below 0.5
+        filters = []
+        remaining = speed
+        while remaining < 0.5:
+            filters.append("atempo=0.5")
+            remaining /= 0.5
+        filters.append(f"atempo={remaining}")
+        af = ",".join(filters)
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", in_wav,
-            "-af", f"atempo={speed}",
+            "-af", af,
             "-ar", str(sr), "-ac", str(ch), "-sample_fmt", fmt,
             out_wav,
         ]
