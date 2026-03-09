@@ -531,6 +531,52 @@ def split_long_segments(
 
 # ========== Smooth Spectral Processing ==========
 
+def spectral_freeze_noisy(
+    segment: np.ndarray, sr: int, duration_samples: int, seed: int = 0,
+) -> np.ndarray:
+    """
+    Spectral freeze with random phase — grainy, mysterious texture.
+
+    Uses fixed magnitude spectrum with fully random phase per frame.
+    Produces a noisier, more particle-like sustain compared to the
+    smooth variant.
+    """
+    rng = np.random.default_rng(seed)
+    if len(segment) < 128:
+        return np.zeros(duration_samples, dtype=np.float32)
+
+    n_fft = min(2048, len(segment))
+    spec = np.fft.rfft(segment[:n_fft])
+    mag = np.abs(spec)
+    n_bins = len(mag)
+
+    out = np.zeros(duration_samples, dtype=np.float32)
+    hop = n_fft // 2
+    win = np.hanning(n_fft).astype(np.float32)
+
+    phase = rng.uniform(0, 2 * np.pi, n_bins)
+    for pos in range(0, duration_samples - n_fft, hop):
+        frame = mag * np.exp(1j * phase)
+        chunk = np.fft.irfft(frame, n_fft).astype(np.float32)
+        out[pos:pos + n_fft] += chunk * win
+        phase += rng.uniform(-0.1, 0.1, n_bins)
+
+    mx = np.max(np.abs(out))
+    if mx > 1e-6:
+        out *= np.max(np.abs(segment)) / mx
+    return out
+
+
+def morph_ghost_noisy(
+    seg_a: np.ndarray, seg_b: np.ndarray,
+    sr: int, duration: int, seed: int = 0,
+) -> np.ndarray:
+    """Crossfade morph using noisy spectral freeze."""
+    ga = spectral_freeze_noisy(seg_a, sr, duration, seed=seed)
+    gb = spectral_freeze_noisy(seg_b, sr, duration, seed=seed + 77)
+    t = np.linspace(0, 1, duration).astype(np.float32)
+    s_curve = 0.5 - 0.5 * np.cos(np.pi * t)
+    return ga * (1 - s_curve) + gb * s_curve
 
 def spectral_freeze_smooth(
     segment: np.ndarray, sr: int, duration_samples: int, seed: int = 0,
@@ -807,6 +853,8 @@ def process_voice(
     out_sample_rate: int = 48000,
     out_channels: int = 2,
     out_sample_format: str = "s16",
+    # --- Freeze mode ---
+    freeze_mode: str = "smooth",
     # --- Misc ---
     seed: int = 42,
 ) -> None:
@@ -884,7 +932,10 @@ def process_voice(
         seg = y[s:e]
         ghost_len = min(linger_samples, n - s)
 
-        ghost = spectral_freeze_smooth(seg, sr, ghost_len, seed=seed + i * 17)
+        if freeze_mode == "noisy":
+            ghost = spectral_freeze_noisy(seg, sr, ghost_len, seed=seed + i * 17)
+        else:
+            ghost = spectral_freeze_smooth(seg, sr, ghost_len, seed=seed + i * 17)
 
         cutoff = max(200, ghost_cutoff_start - i * ghost_cutoff_decay)
         ghost = gentle_darkfilter(ghost, sr, cutoff=cutoff, resonance=ghost_resonance)
@@ -922,7 +973,8 @@ def process_voice(
             segs[i][1] - segs[i][0],
             segs[i + 1][1] - segs[i + 1][0],
         )
-        g = morph_ghost_smooth(
+        morph_fn = morph_ghost_noisy if freeze_mode == "noisy" else morph_ghost_smooth
+        g = morph_fn(
             y[segs[i][1] - ctx:segs[i][1]],
             y[segs[i + 1][0]:segs[i + 1][0] + ctx],
             sr, gl, seed + i * 13,

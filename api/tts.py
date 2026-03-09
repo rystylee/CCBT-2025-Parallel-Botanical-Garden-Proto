@@ -316,6 +316,39 @@ def _apply_speed_effect(in_wav: str, out_wav: str, audio_config: dict) -> None:
     import subprocess
     subprocess.run(cmd, check=True)
 
+def _apply_pitch_shift(in_wav: str, audio_config: dict) -> None:
+    """Apply harmonic pitch shift in-place using FFmpeg asetrate."""
+    pitch_cfg = audio_config.get("pitch_shift", {})
+    if not pitch_cfg.get("enabled", False):
+        return
+
+    semitones_list = pitch_cfg.get("semitones", [0])
+    semitones = random.choice(semitones_list)
+
+    if semitones == 0:
+        logger.info("[pitch] semitones=0, skipping")
+        return
+
+    sr = audio_config.get("sample_rate", 48000)
+    ratio = 2 ** (semitones / 12.0)
+    shifted_rate = int(sr * ratio)
+
+    tmp_path = in_wav + ".pitch_tmp.wav"
+    ch = audio_config.get("channels", 2)
+    fmt = audio_config.get("sample_format", "s16")
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", in_wav,
+        "-af", f"asetrate={shifted_rate},aresample={sr}",
+        "-ar", str(sr), "-ac", str(ch), "-sample_fmt", fmt,
+        tmp_path,
+    ]
+    logger.info(f"[pitch] semitones={semitones:+d} ratio={ratio:.4f} rate={shifted_rate}")
+
+    import subprocess
+    subprocess.run(cmd, check=True)
+    os.replace(tmp_path, in_wav)
+
 def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
     """Accumulating Ghosts pipeline."""
     from api.audio_effects import process_voice
@@ -376,6 +409,7 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
         out_sample_rate=audio_config.get("sample_rate", 48000),
         out_channels=audio_config.get("channels", 2),
         out_sample_format=audio_config.get("sample_format", "s16"),
+        freeze_mode=ghost_cfg.get("freeze_mode", "smooth"),
         seed=seed,
     )
 
@@ -384,6 +418,9 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
         _apply_speed_effect(ghost_wav_path, final_wav_path, audio_config)
         if os.path.exists(ghost_wav_path):
             os.remove(ghost_wav_path)
+
+    # Apply harmonic pitch shift
+    _apply_pitch_shift(final_wav_path, audio_config)
 
 def _convert_rumble(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
     """Legacy rumble pipeline (v2)."""
