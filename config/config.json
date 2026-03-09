@@ -40,12 +40,12 @@
       "level": 0.42,
       "cutoff_start": 550,
       "cutoff_decay": 12,
-      "resonance": 0.3
+      "resonance": 0.5
     },
     "_desc_speed": "--- 再生速度 --- mode: atempo(ピッチ維持) / tape(ピッチ連動) / off  value: 固定値(nullだとランダムに), range: min/maxランダム",
         "speed": {
           "mode": "atempo",
-          "value": 0.8,
+          "value": 0.2,
           "range": {"min": 0.8, "max": 1.2}
     },
     "_desc_seg": "--- セグメンテーション --- 音声をエネルギーベースで音節単位に分割",
