@@ -21,6 +21,8 @@ def parse_args():
                         help="Device ID (e.g. 61). If omitted, auto-detected from network config")
     parser.add_argument("--raw-audio", action="store_true",
                         help="Debug mode: skip FFmpeg processing, save raw WAV, play with aplay")
+    parser.add_argument("--listen-host", type=str, default=None,
+                        help="Override OSC listen address (e.g. 0.0.0.0 for test env)")
     return parser.parse_args()
 
 
@@ -101,6 +103,10 @@ async def async_main():
 
     # Inject resolved values into config
     config["network"]["ip_address"] = ip_address
+    # Override listen address for test environments (e.g. 192.168.3.x)
+    if opt.listen_host:
+        config["network"]["ip_address"] = opt.listen_host
+        logger.info(f"Overriding listen address: {opt.listen_host}")
     config["targets"] = targets
     config.setdefault("audio", {})["device_id"] = device_id  # for per-node voice character
 
