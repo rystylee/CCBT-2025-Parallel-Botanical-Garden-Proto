@@ -377,6 +377,9 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
     else:
         ghost_wav_path = final_wav_path
 
+    # Apply harmonic pitch shift
+    _apply_pitch_shift(final_wav_path, audio_config)
+
     process_voice(
         in_wav=raw_wav_path,
         out_wav=ghost_wav_path,
@@ -418,9 +421,6 @@ def _convert_ghost(raw_wav_path: str, final_wav_path: str, audio_config: dict) -
         _apply_speed_effect(ghost_wav_path, final_wav_path, audio_config)
         if os.path.exists(ghost_wav_path):
             os.remove(ghost_wav_path)
-
-    # Apply harmonic pitch shift
-    _apply_pitch_shift(final_wav_path, audio_config)
 
 def _convert_rumble(raw_wav_path: str, final_wav_path: str, audio_config: dict) -> None:
     """Legacy rumble pipeline (v2)."""
