@@ -161,13 +161,23 @@ class StackFlowLLMClient:
         }
 
     def _translate_sync(self, query: str) -> str:
-        """Translate from Japanese to device language (called via asyncio.to_thread)."""
+        """Translate from Japanese to device language via English pivot (called via asyncio.to_thread)."""
         try:
-            result = argostranslate.translate.translate(query, from_code="ja", to_code=self.lang)
+            en_text = argostranslate.translate.translate(query, from_code="ja", to_code="en")
+            logger.debug(f"Pivot translation ja->en: {en_text}")
+        except Exception as e:
+            logger.error(f"Translation ja->en failed: {e}, using original")
+            return query
+
+        if self.lang == "en":
+            return en_text
+
+        try:
+            result = argostranslate.translate.translate(en_text, from_code="en", to_code=self.lang)
             return result
         except Exception as e:
-            logger.error(f"Translation ja->{self.lang} failed: {e}")
-            return query
+            logger.warning(f"Translation en->{self.lang} failed: {e}, falling back to English")
+            return en_text
 
     def _postprocess(self, text: str) -> str:
         from api.utils import load_ng_words
