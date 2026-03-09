@@ -31,10 +31,16 @@ class StackFlowLLMClient:
     def set_params(self, config: dict):
         lang = config.get("common").get("lang")
         self.lang = lang
-        self.model = LLM_SETTINGS.get(lang).get("model")
+        # self.model = LLM_SETTINGS.get(lang).get("model")
+        # self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
+        # self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
+        # self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
+        # LLM always uses Japanese prompts (TinySwallow is Japanese-only)
+        ja_settings = LLM_SETTINGS.get("ja")
+        self.model = ja_settings.get("model")
         self.max_tokens = config.get("stack_flow_llm").get("max_tokens")
-        self.system_prompt = LLM_SETTINGS.get(lang).get("system_prompt")
-        self.instruction_prompt = LLM_SETTINGS.get(lang).get("instruction_prompt")
+        self.system_prompt = ja_settings.get("system_prompt")
+        self.instruction_prompt = ja_settings.get("instruction_prompt")
 
         logger.info("[LLM info]")
         logger.info(f"lang: {lang}")
@@ -49,14 +55,8 @@ class StackFlowLLMClient:
     ) -> str:
         logger.info(f"query: {query}")
 
-        # Input is always Japanese; translate to device language if needed
-        if self.lang != "ja":
-            translated_query = await asyncio.to_thread(self._translate_sync, query)
-            logger.info(f"translated ({self.lang}): {translated_query}")
-        else:
-            translated_query = query
-
-        prompt = self.instruction_prompt + translated_query
+        # Input is always Japanese, pass directly to LLM
+        prompt = self.instruction_prompt + query
         logger.info(f"prompt: {prompt}")
         if soft_prefix_b64 is not None:
             sp_val = self._decode_soft_prefix_val(soft_prefix_b64)
@@ -65,7 +65,12 @@ class StackFlowLLMClient:
         send_data = self._create_send_data(prompt, soft_prefix_b64, soft_prefix_len)
         output = await asyncio.to_thread(self._inference_sync, send_data)
 
-        output = self._postprocess(output)
+        # Post-generation: translate Japanese output to device language
+        if self.lang != "ja" and output:
+            ja_text = output
+            output = await asyncio.to_thread(self._translate_sync, output)
+            logger.info(f"Post-translate ja->({self.lang}): {ja_text} -> {output}")
+
         return output
 
     def _inference_sync(self, send_data: dict) -> str:
