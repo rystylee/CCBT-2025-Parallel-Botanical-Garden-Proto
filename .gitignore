@@ -152,3 +152,6 @@ config/config.json.bak.*
 # audio
 *.mp3
 *.wav
+audio/*
+
+ae_csv/*.csv
