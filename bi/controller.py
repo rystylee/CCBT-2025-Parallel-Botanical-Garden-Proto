@@ -1,4 +1,6 @@
 import asyncio
+import subprocess
+from pathlib import Path
 from typing import List, Optional
 
 from loguru import logger
@@ -25,6 +27,10 @@ class BIController:
         # LED state tracking
         self._current_led_brightness = 0.0
         self._pulse_task: Optional[asyncio.Task] = None
+
+        # Waiting audio loop
+        self._waiting_proc: Optional[subprocess.Popen] = None
+        self._waiting_loop_task: Optional[asyncio.Task] = None
 
         # Initialize clients
         self.llm_client = StackFlowLLMClient(config)
@@ -61,12 +67,24 @@ class BIController:
         # Cancel pulse if running
         if self._pulse_task and not self._pulse_task.done():
             self._pulse_task.cancel()
+        # Kill waiting audio if running
+        if self._waiting_proc is not None:
+            try:
+                self._waiting_proc.kill()
+            except Exception:
+                pass
+        if self._waiting_loop_task and not self._waiting_loop_task.done():
+            self._waiting_loop_task.cancel()
 
     # ========== Phase implementations ==========
 
     async def _receiving_phase(self):
         """Phase 1: Receive input data for specified duration"""
         logger.info("RECEIVING phase started")
+
+        # Start waiting audio loop
+        await self._start_waiting_loop()
+
         receive_duration = self.config.get("cycle", {}).get("receive_duration", 3.0)
         await asyncio.sleep(receive_duration)
 
@@ -79,6 +97,7 @@ class BIController:
 
         if not self.input_buffer:
             logger.warning("No input data, skipping generation")
+            await self._stop_waiting_loop()
             self.state = "RESTING"
             return
 
@@ -112,7 +131,8 @@ class BIController:
 
         except Exception as e:
             logger.error(f"Error in generation: {e}")
-            # Stop pulsing, fade down, then rest
+            # Stop waiting audio, pulsing, fade down, then rest
+            await self._stop_waiting_loop()
             await self._stop_pulse()
             await self._led_fade(self._current_led_brightness, 0.0)
             self.state = "RESTING"
@@ -124,6 +144,7 @@ class BIController:
         # Skip output if buffer is empty
         if not self.input_buffer:
             logger.warning("Empty buffer in output phase, skipping output")
+            await self._stop_waiting_loop()
             await self._stop_pulse()
             await self._led_fade(self._current_led_brightness, 0.0)
             self.state = "RESTING"
@@ -135,7 +156,10 @@ class BIController:
         logger.info("Preparing WAV file (LED pulsing continues)...")
         wav_path = await asyncio.to_thread(self.tts_client.prepare_wav_sync, self.tts_text)
 
-        # Step 2: Stop pulsing
+        # Step 2: Stop waiting audio loop (wait for clean shutdown before playing generated WAV)
+        await self._stop_waiting_loop()
+
+        # Step 3: Stop LED pulsing
         await self._stop_pulse()
 
         # If WAV preparation succeeded, play it with LED animation
@@ -143,16 +167,16 @@ class BIController:
             # Fade up to full brightness
             await self._led_fade(self._current_led_brightness, 1.0)
 
-            # Step 3: Play immediately (LED stays at max)
+            # Step 4: Play immediately (LED stays at max)
             try:
                 await asyncio.to_thread(self.tts_client.play_wav_sync, wav_path)
             except Exception as e:
                 logger.error(f"Error in TTS playback: {e}")
 
-            # Step 4: Fade down after playback
+            # Step 5: Fade down after playback
             await self._led_fade(1.0, 0.0)
 
-            # Step 5: Cleanup WAV file
+            # Step 6: Cleanup WAV file
             self.tts_client.cleanup_wav(wav_path)
         else:
             # WAV preparation failed, just fade down LED
@@ -228,6 +252,81 @@ class BIController:
             f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
             f"soft_prefix_b64={soft_prefix_b64[:30]}... (buffer size: {len(self.input_buffer)})"
         )
+
+    # ========== Waiting audio loop ==========
+
+    async def _start_waiting_loop(self):
+        """Start looping waiting.mp3 in background."""
+        # Don't start if already running
+        if self._waiting_loop_task is not None and not self._waiting_loop_task.done():
+            return
+
+        audio_config = self.config.get("audio", {})
+        playback_device = audio_config.get("playback_device", "")
+        waiting_path = audio_config.get("waiting_audio", "audio/waiting.mp3")
+
+        if not Path(waiting_path).exists():
+            logger.warning(f"Waiting audio not found: {waiting_path}, skipping loop")
+            return
+
+        logger.info(f"Starting waiting audio loop: {waiting_path}")
+        self._waiting_loop_task = asyncio.create_task(
+            self._waiting_loop(waiting_path, playback_device)
+        )
+
+    async def _waiting_loop(self, path: str, playback_device: str):
+        """Keep playing waiting.mp3 until cancelled."""
+        try:
+            while True:
+                if playback_device:
+                    cmd = ["aplay", "-D", playback_device, str(path)]
+                else:
+                    card = self.config.get("audio", {}).get("tinyplay_card", 0)
+                    device = self.config.get("audio", {}).get("tinyplay_device", 1)
+                    cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(path)]
+
+                logger.debug(f"Waiting audio play: {' '.join(cmd)}")
+                self._waiting_proc = await asyncio.to_thread(
+                    lambda: subprocess.Popen(
+                        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                )
+                # Wait for playback to finish (then loop restarts)
+                await asyncio.to_thread(self._waiting_proc.wait)
+                self._waiting_proc = None
+        except asyncio.CancelledError:
+            logger.debug("Waiting audio loop cancelled")
+            raise
+
+    async def _stop_waiting_loop(self):
+        """Stop the waiting audio loop and wait for clean shutdown."""
+        if self._waiting_loop_task is None or self._waiting_loop_task.done():
+            self._waiting_proc = None
+            self._waiting_loop_task = None
+            return
+
+        # Cancel the loop task
+        self._waiting_loop_task.cancel()
+
+        # Kill the currently playing process immediately
+        if self._waiting_proc is not None:
+            try:
+                self._waiting_proc.terminate()
+                await asyncio.to_thread(self._waiting_proc.wait)
+            except Exception:
+                try:
+                    self._waiting_proc.kill()
+                except Exception:
+                    pass
+            self._waiting_proc = None
+
+        # Wait for the task to finish
+        try:
+            await self._waiting_loop_task
+        except asyncio.CancelledError:
+            pass
+        self._waiting_loop_task = None
+        logger.info("Waiting audio loop stopped")
 
     # ========== LED control ==========
 
