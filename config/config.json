@@ -31,6 +31,9 @@
     "_desc": "=== Accumulating Ghosts パイプライン ===",
     "_desc_overview": "各音節がスペクトル残像(ゴースト)を残し、後半ほど倍音クラスターが厚くなる暗い倍音テクスチャー。パイプライン: TTS生WAV → セグメント分割 → ゴースト蓄積 → ギャップフィル → ミックス → サチュレーション → リバーブ → EQ → コンプ → ステレオ化 → 速度変更",
 
+    "waiting_audio": "audio/waiting.wav",
+    "_waiting_audio_note": "BIサイクルのRECEIVING〜OUTPUT(WAV準備完了)までループ再生する待機音のパス",
+
     "playback_device": "dmixer",
     "tinyplay_card": 0,
     "tinyplay_device": 1,
