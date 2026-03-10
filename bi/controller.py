@@ -286,14 +286,19 @@ class BIController:
                     cmd = ["tinyplay", f"-D{card}", f"-d{device}", str(path)]
 
                 logger.debug(f"Waiting audio play: {' '.join(cmd)}")
-                self._waiting_proc = await asyncio.to_thread(
+                proc = await asyncio.to_thread(
                     lambda: subprocess.Popen(
-                        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
                     )
                 )
-                # Wait for playback to finish (then loop restarts)
-                await asyncio.to_thread(self._waiting_proc.wait)
+                self._waiting_proc = proc
+                ret = await asyncio.to_thread(proc.wait)
                 self._waiting_proc = None
+
+                if ret != 0:
+                    stderr = proc.stderr.read().decode(errors="replace").strip()
+                    logger.warning(f"Waiting audio playback failed (rc={ret}): {stderr}")
+                    await asyncio.sleep(2.0)
         except asyncio.CancelledError:
             logger.debug("Waiting audio loop cancelled")
             raise
