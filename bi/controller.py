@@ -1,4 +1,5 @@
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 from typing import List, Optional
@@ -255,28 +256,48 @@ class BIController:
     # ========== Waiting audio loop ==========
 
     async def _start_waiting_loop(self):
-        """Start looping waiting.mp3 in background."""
+        """Start looping waiting audio in background."""
         # Don't start if already running
         if self._waiting_loop_task is not None and not self._waiting_loop_task.done():
             return
 
         audio_config = self.config.get("audio", {})
         playback_device = audio_config.get("playback_device", "")
-        waiting_path = audio_config.get("waiting_audio", "audio/waiting.mp3")
+        waiting_dir = audio_config.get("waiting_audio_dir", "audio")
+        waiting_prefix = audio_config.get("waiting_audio_prefix", "waiting_")
 
-        if not Path(waiting_path).exists():
-            logger.warning(f"Waiting audio not found: {waiting_path}, skipping loop")
+        # Collect matching files
+        import glob
+        patterns = [
+            os.path.join(waiting_dir, f"{waiting_prefix}*.wav"),
+            os.path.join(waiting_dir, f"{waiting_prefix}*.mp3"),
+        ]
+        files = []
+        for pat in patterns:
+            files.extend(glob.glob(pat))
+        files.sort()
+
+        if not files:
+            logger.warning(
+                f"No waiting audio files found: {waiting_dir}/{waiting_prefix}*"
+            )
             return
 
-        logger.info(f"Starting waiting audio loop: {waiting_path}")
+        logger.info(
+            f"Starting waiting audio loop: {len(files)} files "
+            f"in {waiting_dir}/ prefix={waiting_prefix}"
+        )
         self._waiting_loop_task = asyncio.create_task(
-            self._waiting_loop(waiting_path, playback_device)
+            self._waiting_loop(files, playback_device)
         )
 
-    async def _waiting_loop(self, path: str, playback_device: str):
-        """Keep playing waiting.mp3 until cancelled."""
+    async def _waiting_loop(self, files: list, playback_device: str):
+        """Keep playing random waiting audio until cancelled."""
+        import random
+
         try:
             while True:
+                path = random.choice(files)
                 if playback_device:
                     cmd = ["aplay", "-D", playback_device, str(path)]
                 else:
