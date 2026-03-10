@@ -255,7 +255,7 @@ class BIController:
 
     # ========== Waiting audio loop ==========
 
-    async def _start_waiting_loop(self):
+async def _start_waiting_loop(self):
         """Start looping waiting audio in background."""
         # Don't start if already running
         if self._waiting_loop_task is not None and not self._waiting_loop_task.done():
@@ -283,6 +283,19 @@ class BIController:
             )
             return
 
+        # Ensure all files match dmixer format (48000Hz, 2ch, s16)
+        target_sr = audio_config.get("sample_rate", 48000)
+        target_ch = audio_config.get("channels", 2)
+        target_fmt = audio_config.get("sample_format", "s16")
+        files = await asyncio.to_thread(
+            self._ensure_waiting_audio_format,
+            files, target_sr, target_ch, target_fmt,
+        )
+
+        if not files:
+            logger.warning("No valid waiting audio files after format conversion")
+            return
+
         logger.info(
             f"Starting waiting audio loop: {len(files)} files "
             f"in {waiting_dir}/ prefix={waiting_prefix}"
@@ -291,6 +304,62 @@ class BIController:
             self._waiting_loop(files, playback_device)
         )
 
+    def _ensure_waiting_audio_format(
+        self, files: list, sample_rate: int, channels: int, sample_format: str,
+    ) -> list:
+        """Convert waiting audio files to dmixer-compatible format if needed.
+
+        Checks WAV header (sample rate, channels, bit depth).
+        Files that don't match are converted in-place via FFmpeg.
+        Non-WAV files (mp3 etc.) are always converted to .wav.
+        Returns list of playable file paths.
+        """
+        import struct
+        import wave
+
+        playable = []
+        for path in files:
+            try:
+                needs_convert = False
+
+                # Non-WAV files always need conversion
+                if not path.lower().endswith(".wav"):
+                    needs_convert = True
+                else:
+                    # Check WAV header
+                    try:
+                        with wave.open(path, "rb") as wf:
+                            if (
+                                wf.getframerate() != sample_rate
+                                or wf.getnchannels() != channels
+                                or wf.getsampwidth() != (16 if sample_format == "s16" else 32) // 8
+                            ):
+                                needs_convert = True
+                    except Exception:
+                        needs_convert = True
+
+                if needs_convert:
+                    out_path = path.rsplit(".", 1)[0] + ".wav"
+                    tmp_path = out_path + ".tmp.wav"
+                    cmd = [
+                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        "-i", path,
+                        "-ar", str(sample_rate),
+                        "-ac", str(channels),
+                        "-sample_fmt", sample_format,
+                        tmp_path,
+                    ]
+                    logger.info(f"Converting waiting audio: {path} -> {sample_rate}Hz/{channels}ch/{sample_format}")
+                    subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    os.replace(tmp_path, out_path)
+                    playable.append(out_path)
+                else:
+                    playable.append(path)
+
+            except Exception as e:
+                logger.warning(f"Failed to prepare waiting audio {path}: {e}")
+
+        return playable
     async def _waiting_loop(self, files: list, playback_device: str):
         """Keep playing random waiting audio until cancelled."""
         import random
