@@ -255,54 +255,87 @@ class BIController:
 
     # ========== Waiting audio loop ==========
 
-    async def _start_waiting_loop(self):
-        """Start looping waiting audio in background."""
-        # Don't start if already running
-        if self._waiting_loop_task is not None and not self._waiting_loop_task.done():
+    async def _output_phase(self):
+        """Phase 3: Prepare WAV (while pulsing), then full brightness + immediate playback"""
+        logger.info("OUTPUT phase started")
+
+        # Skip output if buffer is empty
+        if not self.input_buffer:
+            logger.warning("Empty buffer in output phase, skipping output")
+            await self._stop_pulse()
+            await self._led_fade(self._current_led_brightness, 0.0)
+            self.state = "RESTING"
             return
 
-        audio_config = self.config.get("audio", {})
-        playback_device = audio_config.get("playback_device", "")
-        waiting_dir = audio_config.get("waiting_audio_dir", "audio")
-        waiting_prefix = audio_config.get("waiting_audio_prefix", "waiting_")
+        # Step 1: Prepare WAV file while LED keeps pulsing
+        logger.info("Preparing WAV file (LED pulsing continues)...")
+        wav_path = await asyncio.to_thread(self.tts_client.prepare_wav_sync, self.tts_text)
 
-        # Collect matching files
-        import glob
-        patterns = [
-            os.path.join(waiting_dir, f"{waiting_prefix}*.wav"),
-            os.path.join(waiting_dir, f"{waiting_prefix}*.mp3"),
-        ]
-        files = []
-        for pat in patterns:
-            files.extend(glob.glob(pat))
-        files.sort()
+        # Step 2: Stop LED pulsing
+        await self._stop_pulse()
 
-        if not files:
-            logger.warning(
-                f"No waiting audio files found: {waiting_dir}/{waiting_prefix}*"
+        # If WAV preparation succeeded, play it with LED animation
+        if wav_path is not None:
+            # Step 3: Start generated WAV playback first (non-blocking)
+            playback_proc = await asyncio.to_thread(
+                self.tts_client.start_playback, wav_path
             )
-            return
 
-        # Ensure all files match dmixer format (48000Hz, 2ch, s16)
-        target_sr = audio_config.get("sample_rate", 48000)
-        target_ch = audio_config.get("channels", 2)
-        target_fmt = audio_config.get("sample_format", "s16")
-        files = await asyncio.to_thread(
-            self._ensure_waiting_audio_format,
-            files, target_sr, target_ch, target_fmt,
-        )
+            # Step 4: Stop waiting audio (brief crossfade overlap via dmix)
+            await self._stop_waiting_loop()
 
-        if not files:
-            logger.warning("No valid waiting audio files after format conversion")
-            return
+            # Step 5: Fade up LED concurrently with playback
+            await self._led_fade(self._current_led_brightness, 1.0)
 
-        logger.info(
-            f"Starting waiting audio loop: {len(files)} files "
-            f"in {waiting_dir}/ prefix={waiting_prefix}"
-        )
-        self._waiting_loop_task = asyncio.create_task(
-            self._waiting_loop(files, playback_device)
-        )
+            # Step 6: Wait for playback to finish
+            try:
+                ret = await asyncio.to_thread(playback_proc.wait)
+                if ret != 0:
+                    stderr = playback_proc.stderr.read().decode(errors="replace").strip() if playback_proc.stderr else ""
+                    logger.error(f"TTS playback failed (rc={ret}): {stderr}")
+            except Exception as e:
+                logger.error(f"Error in TTS playback: {e}")
+
+            # Step 7: Fade down after playback
+            await self._led_fade(1.0, 0.0)
+
+            # Step 8: Cleanup WAV file
+            self.tts_client.cleanup_wav(wav_path)
+        else:
+            logger.error("WAV preparation failed, skipping playback but continuing to send message")
+            await self._stop_waiting_loop()
+            await self._led_fade(self._current_led_brightness, 0.0)
+
+        # Send generated text to target devices
+        targets = self.config.get("targets", [])
+
+        lowest_relay_count = min(data.relay_count for data in self.input_buffer)
+        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64
+        logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
+
+        try:
+            self.osc_client.send_to_all_targets(
+                targets, "/bi/input", self.generated_text, soft_prefix_b64, lowest_relay_count
+            )
+        except Exception as e:
+            logger.error(f"Error sending to targets: {e}")
+
+        # Send generated text to Mixer PC
+        mixer_config = self.config.get("mixer")
+        if mixer_config:
+            try:
+                mixer_target = {
+                    "host": mixer_config.get("host"),
+                    "port": mixer_config.get("port"),
+                }
+                self.osc_client.send_to_target(mixer_target, "/mixer", self.generated_text)
+                logger.info(f"Sent to Mixer PC: {self.generated_text}")
+            except Exception as e:
+                logger.error(f"Error sending to Mixer PC: {e}")
+
+        # Clear buffer
+        self.input_buffer.clear()
+        self.state = "RESTING"
 
     def _ensure_waiting_audio_format(
         self, files: list, sample_rate: int, channels: int, sample_format: str,
