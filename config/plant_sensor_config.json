@@ -1,0 +1,32 @@
+{
+  "_desc": "植物センサー → soft_prefix → Mac(10.0.0.202) 配信設定",
+
+  "listen_ip": "0.0.0.0",
+  "listen_port": 8000,
+
+  "relay_target": {
+    "_desc": "soft_prefix 付き /bi/input を送る先 (Mac が M5Stack へ中継)",
+    "host": "10.0.0.202",
+    "port": 8000
+  },
+
+  "soft_prefix_p": 1,
+  "soft_prefix_h": 1536,
+  "min_send_interval_sec": 3.0,
+
+  "cf_devices": {
+    "_desc": "クロロフィル蛍光(CF)デバイス。OSCで /CF0x/* を送ってくる",
+    "CF01": { "source_ip": "10.0.0.211" },
+    "CF02": { "source_ip": "10.0.0.212" }
+  },
+
+  "ae_sensor": {
+    "_desc": "AEセンサー (陰山先生)。手動DLしたCSVをフォルダに入れると自動読み取り",
+    "enabled": true,
+    "csv_dir": "ae_csv",
+    "poll_interval_sec": 30,
+    "ae_column": "AE",
+    "max_ae_count": 200,
+    "_desc_max": "正規化用の最大値。AE値 / max_ae_count で 0~1 に変換"
+  }
+}
