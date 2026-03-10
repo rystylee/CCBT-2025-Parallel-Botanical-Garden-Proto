@@ -144,124 +144,6 @@ class BIController:
         # Skip output if buffer is empty
         if not self.input_buffer:
             logger.warning("Empty buffer in output phase, skipping output")
-            await self._stop_waiting_loop()
-            await self._stop_pulse()
-            await self._led_fade(self._current_led_brightness, 0.0)
-            self.state = "RESTING"
-            return
-
-        # Step 1: Prepare WAV file while LED keeps pulsing
-        #   prepare_wav_sync is blocking (TTS API + FFmpeg), so run in thread
-        #   to let pulse_loop keep running on the event loop
-        logger.info("Preparing WAV file (LED pulsing continues)...")
-        wav_path = await asyncio.to_thread(self.tts_client.prepare_wav_sync, self.tts_text)
-
-        # Step 2: Stop waiting audio loop (wait for clean shutdown before playing generated WAV)
-        await self._stop_waiting_loop()
-
-        # Step 3: Stop LED pulsing
-        await self._stop_pulse()
-
-        # If WAV preparation succeeded, play it with LED animation
-        if wav_path is not None:
-            # Fade up to full brightness
-            await self._led_fade(self._current_led_brightness, 1.0)
-
-            # Step 4: Play immediately (LED stays at max)
-            try:
-                await asyncio.to_thread(self.tts_client.play_wav_sync, wav_path)
-            except Exception as e:
-                logger.error(f"Error in TTS playback: {e}")
-
-            # Step 5: Fade down after playback
-            await self._led_fade(1.0, 0.0)
-
-            # Step 6: Cleanup WAV file
-            self.tts_client.cleanup_wav(wav_path)
-        else:
-            # WAV preparation failed, just fade down LED
-            logger.error("WAV preparation failed, skipping playback but continuing to send message")
-            await self._led_fade(self._current_led_brightness, 0.0)
-
-        # Send generated text to target devices
-        targets = self.config.get("targets", [])
-
-        lowest_relay_count = min(data.relay_count for data in self.input_buffer)
-        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64
-        logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
-
-        try:
-            self.osc_client.send_to_all_targets(
-                targets, "/bi/input", self.generated_text, soft_prefix_b64, lowest_relay_count
-            )
-        except Exception as e:
-            logger.error(f"Error sending to targets: {e}")
-
-        # Send generated text to Mixer PC
-        mixer_config = self.config.get("mixer")
-        if mixer_config:
-            try:
-                mixer_target = {
-                    "host": mixer_config.get("host"),
-                    "port": mixer_config.get("port"),
-                }
-                self.osc_client.send_to_target(mixer_target, "/mixer", self.generated_text)
-                logger.info(f"Sent to Mixer PC: {self.generated_text}")
-            except Exception as e:
-                logger.error(f"Error sending to Mixer PC: {e}")
-
-        # Clear buffer
-        self.input_buffer.clear()
-        self.state = "RESTING"
-
-    async def _resting_phase(self):
-        """Phase 4: Rest period"""
-        logger.info("RESTING phase started")
-        rest_duration = self.config.get("cycle", {}).get("rest_duration", 1.0)
-        await asyncio.sleep(rest_duration)
-        self.state = "RECEIVING"
-
-    # ========== Input handling ==========
-
-    def _concatenate_inputs(self) -> str:
-        """Concatenate input texts in received order"""
-        return "".join([data.text for data in self.input_buffer])
-
-    def add_input(self, text: str, soft_prefix_b64: str, relay_count: int):
-        """Add input data to buffer with relay count filtering"""
-        max_relay_count = self.config.get("cycle", {}).get("max_relay_count", 6)
-
-        logger.debug(f"Relay count check: received={relay_count}, max_relay_count={max_relay_count}")
-
-        if relay_count >= max_relay_count:
-            logger.warning(
-                f"Rejected data exceeding relay limit: relay_count={relay_count}, "
-                f"max_relay_count={max_relay_count}, text='{text[:20]}...'"
-            )
-            return
-
-        next_relay_count = relay_count + 1
-
-        data = BIInputData(
-            soft_prefix_b64=soft_prefix_b64,
-            relay_count=next_relay_count,
-            text=text.strip()
-        )
-        self.input_buffer.append(data)
-        logger.info(
-            f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
-            f"soft_prefix_b64={soft_prefix_b64[:30]}... (buffer size: {len(self.input_buffer)})"
-        )
-
-    # ========== Waiting audio loop ==========
-
-    async def _output_phase(self):
-        """Phase 3: Prepare WAV (while pulsing), then full brightness + immediate playback"""
-        logger.info("OUTPUT phase started")
-
-        # Skip output if buffer is empty
-        if not self.input_buffer:
-            logger.warning("Empty buffer in output phase, skipping output")
             await self._stop_pulse()
             await self._led_fade(self._current_led_brightness, 0.0)
             self.state = "RESTING"
@@ -336,6 +218,96 @@ class BIController:
         # Clear buffer
         self.input_buffer.clear()
         self.state = "RESTING"
+
+    async def _resting_phase(self):
+        """Phase 4: Rest period"""
+        logger.info("RESTING phase started")
+        rest_duration = self.config.get("cycle", {}).get("rest_duration", 1.0)
+        await asyncio.sleep(rest_duration)
+        self.state = "RECEIVING"
+
+    # ========== Input handling ==========
+
+    def _concatenate_inputs(self) -> str:
+        """Concatenate input texts in received order"""
+        return "".join([data.text for data in self.input_buffer])
+
+    def add_input(self, text: str, soft_prefix_b64: str, relay_count: int):
+        """Add input data to buffer with relay count filtering"""
+        max_relay_count = self.config.get("cycle", {}).get("max_relay_count", 6)
+
+        logger.debug(f"Relay count check: received={relay_count}, max_relay_count={max_relay_count}")
+
+        if relay_count >= max_relay_count:
+            logger.warning(
+                f"Rejected data exceeding relay limit: relay_count={relay_count}, "
+                f"max_relay_count={max_relay_count}, text='{text[:20]}...'"
+            )
+            return
+
+        next_relay_count = relay_count + 1
+
+        data = BIInputData(
+            soft_prefix_b64=soft_prefix_b64,
+            relay_count=next_relay_count,
+            text=text.strip()
+        )
+        self.input_buffer.append(data)
+        logger.info(
+            f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
+            f"soft_prefix_b64={soft_prefix_b64[:30]}... (buffer size: {len(self.input_buffer)})"
+        )
+
+    # ========== Waiting audio loop ==========
+
+    async def _start_waiting_loop(self):
+        """Start looping waiting audio in background."""
+        # Don't start if already running
+        if self._waiting_loop_task is not None and not self._waiting_loop_task.done():
+            return
+
+        audio_config = self.config.get("audio", {})
+        playback_device = audio_config.get("playback_device", "")
+        waiting_dir = audio_config.get("waiting_audio_dir", "audio")
+        waiting_prefix = audio_config.get("waiting_audio_prefix", "waiting_")
+
+        # Collect matching files
+        import glob
+        patterns = [
+            os.path.join(waiting_dir, f"{waiting_prefix}*.wav"),
+            os.path.join(waiting_dir, f"{waiting_prefix}*.mp3"),
+        ]
+        files = []
+        for pat in patterns:
+            files.extend(glob.glob(pat))
+        files.sort()
+
+        if not files:
+            logger.warning(
+                f"No waiting audio files found: {waiting_dir}/{waiting_prefix}*"
+            )
+            return
+
+        # Ensure all files match dmixer format (48000Hz, 2ch, s16)
+        target_sr = audio_config.get("sample_rate", 48000)
+        target_ch = audio_config.get("channels", 2)
+        target_fmt = audio_config.get("sample_format", "s16")
+        files = await asyncio.to_thread(
+            self._ensure_waiting_audio_format,
+            files, target_sr, target_ch, target_fmt,
+        )
+
+        if not files:
+            logger.warning("No valid waiting audio files after format conversion")
+            return
+
+        logger.info(
+            f"Starting waiting audio loop: {len(files)} files "
+            f"in {waiting_dir}/ prefix={waiting_prefix}"
+        )
+        self._waiting_loop_task = asyncio.create_task(
+            self._waiting_loop(files, playback_device)
+        )
 
     def _ensure_waiting_audio_format(
         self, files: list, sample_rate: int, channels: int, sample_format: str,
