@@ -255,7 +255,7 @@ class BIController:
 
     # ========== Waiting audio loop ==========
 
-async def _start_waiting_loop(self):
+    async def _start_waiting_loop(self):
         """Start looping waiting audio in background."""
         # Don't start if already running
         if self._waiting_loop_task is not None and not self._waiting_loop_task.done():
