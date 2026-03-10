@@ -97,7 +97,6 @@ class BIController:
 
         if not self.input_buffer:
             logger.warning("No input data, skipping generation")
-            await self._stop_waiting_loop()
             self.state = "RESTING"
             return
 
