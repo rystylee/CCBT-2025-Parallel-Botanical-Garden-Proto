@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
 """植物センサー → soft_prefix → Mac(10.0.0.202) 配信
 
-Ubuntu (10.0.0.200) 上で動作。
-CFデバイス(OSC) / AEセンサー(ローカルCSV) のデータを受信・取得し、
-soft_prefix に変換して Mac (10.0.0.202) へ OSC 送信する。
+AE×CF 2軸マトリクスで soft_prefix の「揺らぎの性格」を決定する。
+全状態がLLMに強い影響を与える設計。植物が静かでも活発でも、
+生成される詩のトーンが植物の状態に連動して変化する。
 
-=== CFデバイス (クロロフィル蛍光計測) ===
-  IP: 10.0.0.211 (CF01), 10.0.0.212 (CF02)
-  プロトコル: OSC → Ubuntu:8000
-  /CF0x/PFI_degree_of_change       float (-1.0 ~ 1.0)
-  /CF0x/PFI_degree_of_change_class int (0~6, 3=no change)
-  /CF0x/flag                       "same" | "updated"
-
-=== AEセンサー (陰山先生) ===
-  CSV手動DL → ae_csv/ フォルダへ配置
-  CSV形式: "Time (hr)","Date","AE","AE1ch","AE2ch"
-  最新CSVの最終行のAE値を使用
+=== マトリクス ===
+               CF悪化(<-0.3)  CF安定(-0.3~0.3)  CF良化(>0.3)
+  AE低(<0.33)    1e-3(収束的)    3e-3              7e-3
+  AE中(0.33~0.66) 3e-3           7e-3              1e-2
+  AE高(>0.66)    7e-3            1e-2              1e-2(発散的)
 
 使い方:
     python3 plant_sensor_processor.py
-    python3 plant_sensor_processor.py --config plant_sensor_config.json
+    python3 plant_sensor_processor.py --config path/to/plant_sensor_config.json
     python3 plant_sensor_processor.py --dry-run
 """
 
@@ -39,13 +33,14 @@ from pythonosc.osc_server import AsyncIOOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
 from pythonosc import osc_message_builder
 
-# ── soft_prefix 生成 (bi/utils.py 互換) ──
 import base64
 import struct
 
 SP_P = 1
 SP_H = 1536
 
+
+# ── BF16 / soft_prefix 生成 ──
 
 def f32_to_bf16_u16(x: float) -> int:
     return (struct.unpack("<I", struct.pack("<f", x))[0] >> 16) & 0xFFFF
@@ -56,54 +51,81 @@ def make_sp_b64(val: float, p: int = SP_P, h: int = SP_H) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
-def pfi_to_sp_b64(pfi: float, p: int = SP_P, h: int = SP_H) -> str:
-    """PFI変化度合い (-1.0~1.0) → soft_prefix base64"""
-    pfi = max(-1.0, min(1.0, pfi))
-    if pfi < -0.5:
-        val = 0.0
-    elif pfi < 0.0:
-        val = 1e-4
-    elif pfi < 0.5:
-        val = 1e-3
-    else:
-        val = 1e-2
-    return make_sp_b64(val, p, h)
+# ── AE×CF マトリクス ──
+
+# デフォルト値 (configで上書き可能)
+DEFAULT_MATRIX = {
+    # [AE段階][CF段階]
+    # AE低
+    (0, 0): 1e-3,   # low_worse:  沈黙+衰退 → 収束的・反復的
+    (0, 1): 3e-3,   # low_stable: 沈黙+安定 → やや柔らかい
+    (0, 2): 7e-3,   # low_better: 静かだが回復中 → 静寂からの跳躍
+    # AE中
+    (1, 0): 3e-3,   # mid_worse:  活動中だが効率低下
+    (1, 1): 7e-3,   # mid_stable: 通常の活動
+    (1, 2): 1e-2,   # mid_better: 活動中+改善 → 自由な展開
+    # AE高
+    (2, 0): 7e-3,   # high_worse: ストレス下で必死 → 緊張感
+    (2, 1): 1e-2,   # high_stable: 全力活動
+    (2, 2): 1e-2,   # high_better: 最も活発 → 最大の発散
+}
 
 
-def pfi_class_to_sp_b64(cls: int, p: int = SP_P, h: int = SP_H) -> str:
-    """PFIクラス (0~6) → soft_prefix base64"""
-    cls = max(0, min(6, cls))
-    if cls <= 1:
-        val = 0.0
-    elif cls <= 2:
-        val = 1e-4
-    elif cls <= 4:
-        val = 1e-3
-    else:
-        val = 1e-2
-    return make_sp_b64(val, p, h)
+class SensorMatrix:
+    """AE(3段階) × CF(3段階) → soft_prefix値 のマトリクス"""
 
+    def __init__(self, config: dict):
+        mat_cfg = config.get("matrix", {})
 
-def ae_to_sp_b64(ae_count: float, max_count: float = 200.0,
-                 p: int = SP_P, h: int = SP_H) -> str:
-    """AEカウント値 → 正規化 → soft_prefix base64
+        self.ae_thresholds = mat_cfg.get("ae_thresholds", [0.33, 0.66])
+        self.cf_thresholds = mat_cfg.get("cf_thresholds", [-0.3, 0.3])
 
-    AE値 / max_count で 0~1 に変換してからマッピング:
-      0.00 ~ 0.25  → 0.0   (ほぼ無音)
-      0.25 ~ 0.50  → 1e-4  (低活性)
-      0.50 ~ 0.75  → 1e-3  (中活性)
-      0.75 ~ 1.00  → 1e-2  (高活性)
-    """
-    normalized = max(0.0, min(1.0, ae_count / max_count)) if max_count > 0 else 0.0
-    if normalized < 0.25:
-        val = 0.0
-    elif normalized < 0.50:
-        val = 1e-4
-    elif normalized < 0.75:
-        val = 1e-3
-    else:
-        val = 1e-2
-    return make_sp_b64(val, p, h)
+        # config の values からマトリクス構築
+        v = mat_cfg.get("values", {})
+        self.matrix = {
+            (0, 0): v.get("low_worse",   DEFAULT_MATRIX[(0, 0)]),
+            (0, 1): v.get("low_stable",  DEFAULT_MATRIX[(0, 1)]),
+            (0, 2): v.get("low_better",  DEFAULT_MATRIX[(0, 2)]),
+            (1, 0): v.get("mid_worse",   DEFAULT_MATRIX[(1, 0)]),
+            (1, 1): v.get("mid_stable",  DEFAULT_MATRIX[(1, 1)]),
+            (1, 2): v.get("mid_better",  DEFAULT_MATRIX[(1, 2)]),
+            (2, 0): v.get("high_worse",  DEFAULT_MATRIX[(2, 0)]),
+            (2, 1): v.get("high_stable", DEFAULT_MATRIX[(2, 1)]),
+            (2, 2): v.get("high_better", DEFAULT_MATRIX[(2, 2)]),
+        }
+
+    def _ae_level(self, ae_norm: float) -> int:
+        """AE正規化値 → 0(低), 1(中), 2(高)"""
+        if ae_norm < self.ae_thresholds[0]:
+            return 0
+        elif ae_norm < self.ae_thresholds[1]:
+            return 1
+        return 2
+
+    def _cf_level(self, pfi: float) -> int:
+        """PFI値 → 0(悪化), 1(安定), 2(良化)"""
+        if pfi < self.cf_thresholds[0]:
+            return 0
+        elif pfi < self.cf_thresholds[1]:
+            return 1
+        return 2
+
+    def lookup(self, ae_norm: float, pfi: float) -> float:
+        """AE正規化値 + PFI → soft_prefix BF16値"""
+        ae_lv = self._ae_level(ae_norm)
+        cf_lv = self._cf_level(pfi)
+        val = self.matrix[(ae_lv, cf_lv)]
+        return val
+
+    def lookup_with_info(self, ae_norm: float, pfi: float) -> tuple[float, str]:
+        """lookup + デバッグ用ラベル"""
+        ae_lv = self._ae_level(ae_norm)
+        cf_lv = self._cf_level(pfi)
+        val = self.matrix[(ae_lv, cf_lv)]
+        ae_labels = ["低", "中", "高"]
+        cf_labels = ["悪化", "安定", "良化"]
+        label = f"AE{ae_labels[ae_lv]}+CF{cf_labels[cf_lv]}"
+        return val, label
 
 
 # ── CFデバイス ──
@@ -132,89 +154,73 @@ class CFDeviceState:
     def is_updated(self) -> bool:
         return self.flag == "updated"
 
-    def get_sp_b64(self, p: int = SP_P, h: int = SP_H) -> Optional[str]:
+    def get_pfi(self) -> Optional[float]:
+        """PFI float を優先、なければ class から復元"""
         if self.pfi_change is not None:
-            return pfi_to_sp_b64(self.pfi_change, p, h)
+            return self.pfi_change
         if self.pfi_class is not None:
-            return pfi_class_to_sp_b64(self.pfi_class, p, h)
+            # class(0~6) → float(-1~1) に近似変換
+            return (self.pfi_class - 3) / 3.0
         return None
-
-    def get_text(self) -> str:
-        parts = []
-        if self.pfi_change is not None:
-            parts.append(f"PFI:{self.pfi_change:+.3f}")
-        if self.pfi_class is not None:
-            labels = ["much_worse", "worse", "slightly_worse", "stable",
-                      "slightly_better", "better", "much_better"]
-            label = labels[max(0, min(6, self.pfi_class))]
-            parts.append(label)
-        return f"[{self.device_id}:{','.join(parts)}]" if parts else f"[{self.device_id}]"
 
 
 # ── AEセンサー (ローカルCSV監視) ──
 
 class AECsvWatcher:
-    """ae_csv/ フォルダを監視し、最新CSVの最終行のAE値を読み取る"""
-
     def __init__(self, config: dict):
         self.enabled = config.get("enabled", False)
         self.csv_dir = Path(config.get("csv_dir", "ae_csv"))
-        # 相対パスならプロジェクトルート (input_controller/ の親) 基準に解決
         if not self.csv_dir.is_absolute():
-            project_root = Path(__file__).parent.parent
-            self.csv_dir = project_root / self.csv_dir
+            self.csv_dir = Path(__file__).parent.parent / self.csv_dir
         self.poll_interval = config.get("poll_interval_sec", 30)
         self.ae_column = config.get("ae_column", "AE")
         self.max_ae_count = config.get("max_ae_count", 200.0)
         self.last_file: Optional[str] = None
         self.last_mtime: float = 0.0
-        self.latest_ae: Optional[float] = None
-        self.latest_date: str = ""
+        self.latest_ae: float = 0.0
+        self.ae_normalized: float = 0.0
 
-    def read_latest_csv(self) -> Optional[dict]:
-        """最新のCSVファイルを見つけて最終行を返す"""
+    def read_latest_csv(self) -> bool:
+        """最新CSVを読み、値が更新されたら True"""
         if not self.csv_dir.exists():
-            return None
+            return False
 
         csv_files = sorted(self.csv_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime)
         if not csv_files:
-            return None
+            return False
 
         latest = csv_files[-1]
         mtime = latest.stat().st_mtime
 
-        # ファイルが変わっていなければスキップ
         if str(latest) == self.last_file and mtime == self.last_mtime:
-            return None
+            return False
 
         try:
             with open(latest, encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
+                rows = list(csv.DictReader(f))
 
             if not rows:
-                return None
+                return False
 
-            # 最終行からAE値取得
-            last_row = rows[-1]
-            ae_val = float(last_row[self.ae_column])
-            date_str = last_row.get("Date", "")
+            # 最終行の AE 値
+            ae_val = float(rows[-1][self.ae_column])
+            date_str = rows[-1].get("Date", "")
 
             self.last_file = str(latest)
             self.last_mtime = mtime
             self.latest_ae = ae_val
-            self.latest_date = date_str
+            self.ae_normalized = max(0.0, min(1.0,
+                ae_val / self.max_ae_count if self.max_ae_count > 0 else 0.0))
 
-            logger.info(f"[AE] CSV読み込み: {latest.name} → "
-                        f"AE={ae_val:.0f} (date={date_str})")
-
-            return {"ae": ae_val, "date": date_str, "file": latest.name}
+            logger.info(f"[AE] CSV更新: {latest.name} → "
+                        f"AE={ae_val:.0f} norm={self.ae_normalized:.3f} (date={date_str})")
+            return True
 
         except Exception as e:
             logger.error(f"[AE] CSV読み込み失敗: {latest} → {e}")
-            return None
+            return False
 
-    async def poll_loop(self, sp_p: int, sp_h: int, max_count: float, send_fn):
+    async def poll_loop(self):
         """定期的にCSVフォルダを監視"""
         if not self.enabled:
             logger.info("[AE] 無効 (ae_sensor.enabled = false)")
@@ -223,15 +229,11 @@ class AECsvWatcher:
         self.csv_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"[AE] CSV監視開始: {self.csv_dir} (間隔: {self.poll_interval}s)")
 
-        while True:
-            result = self.read_latest_csv()
-            if result:
-                ae_val = result["ae"]
-                sp_b64 = ae_to_sp_b64(ae_val, max_count, sp_p, sp_h)
-                normalized = min(1.0, ae_val / max_count) if max_count > 0 else 0.0
-                text = f"[AE:{ae_val:.0f},norm:{normalized:.2f}]"
-                send_fn(text, sp_b64, source="AE")
+        # 初回読み込み
+        self.read_latest_csv()
 
+        while True:
+            self.read_latest_csv()
             await asyncio.sleep(self.poll_interval)
 
 
@@ -253,27 +255,27 @@ class PlantSensorProcessor:
         self.relay_host = relay["host"]
         self.relay_port = relay["port"]
 
+        # マトリクス
+        self.matrix = SensorMatrix(config)
+
         # CFデバイス
         for did, info in config.get("cf_devices", {}).items():
             if did.startswith("_"):
                 continue
             self.cf_devices[did] = CFDeviceState(did)
         if not self.cf_devices:
+            self.cf_devices["CF00"] = CFDeviceState("CF00")
             self.cf_devices["CF01"] = CFDeviceState("CF01")
-            self.cf_devices["CF02"] = CFDeviceState("CF02")
 
         # AEセンサー
-        ae_cfg = config.get("ae_sensor", {})
-        self.ae_watcher = AECsvWatcher(ae_cfg)
-        self.ae_max_count = ae_cfg.get("max_ae_count", 200.0)
+        self.ae_watcher = AECsvWatcher(config.get("ae_sensor", {}))
 
         # OSCハンドラ
-        self.dispatcher.map("/CF01/PFI_degree_of_change", self._on_pfi, "CF01")
-        self.dispatcher.map("/CF02/PFI_degree_of_change", self._on_pfi, "CF02")
-        self.dispatcher.map("/CF01/PFI_degree_of_change_class", self._on_pfi_class, "CF01")
-        self.dispatcher.map("/CF02/PFI_degree_of_change_class", self._on_pfi_class, "CF02")
-        self.dispatcher.map("/CF01/flag", self._on_flag, "CF01")
-        self.dispatcher.map("/CF02/flag", self._on_flag, "CF02")
+        for did in self.cf_devices:
+            self.dispatcher.map(f"/{did}/PFI_degree_of_change", self._on_pfi, did)
+            self.dispatcher.map(f"/{did}/PFI_degree_of_change_class", self._on_pfi_class, did)
+            self.dispatcher.map(f"/{did}/flag", self._on_flag, did)
+
         self.dispatcher.map("/mixer", self._on_mixer)
         self.dispatcher.set_default_handler(self._on_unknown)
 
@@ -306,7 +308,7 @@ class PlantSensorProcessor:
             old_flag = dev.flag
             dev.update_flag(value)
             if value == "updated" and old_flag != "updated":
-                logger.info(f"[{device_id}] 🌱 データ更新! PFI={dev.pfi_change}")
+                logger.info(f"[{device_id}] 🌱 データ更新!")
 
     def _on_mixer(self, address: str, *args):
         text = " ".join(str(a) for a in args).strip()
@@ -325,7 +327,8 @@ class PlantSensorProcessor:
     def send_to_relay(self, text: str, sp_b64: str, source: str = "",
                       relay_count: int = 0):
         if self.dry_run:
-            logger.info(f"(dry-run) [{source}] text={text} sp={sp_b64[:20]}...")
+            logger.info(f"(dry-run) [{source}] → {self.relay_host}:{self.relay_port} "
+                        f"text={text} sp={sp_b64[:20]}...")
             return
 
         try:
@@ -339,23 +342,38 @@ class PlantSensorProcessor:
         except Exception as e:
             logger.error(f"送信失敗 {self.relay_host}:{self.relay_port}: {e}")
 
-    # ── CF配信ループ ──
+    # ── メインループ: CF受信トリガーでAE参照 → マトリクス → 送信 ──
 
-    async def cf_distribution_loop(self):
-        logger.info("[CF] 配信ループ開始")
+    async def distribution_loop(self):
+        """CFデバイスのデータ受信をトリガーに、AEを参照して
+        マトリクスからsoft_prefixを生成し、CFデバイスごとに送信"""
+        logger.info("[配信] ループ開始")
+
         while True:
+            ae_norm = self.ae_watcher.ae_normalized
+
             for device_id, dev in self.cf_devices.items():
                 now = time.time()
+
                 if (now - dev.last_sent) < self.min_send_interval:
                     continue
 
-                sp_b64 = dev.get_sp_b64(self.sp_p, self.sp_h)
-                if sp_b64 is None:
+                pfi = dev.get_pfi()
+                if pfi is None:
                     continue
 
-                text = dev.get_text()
+                # マトリクス参照
+                sp_val, label = self.matrix.lookup_with_info(ae_norm, pfi)
+                sp_b64 = make_sp_b64(sp_val, self.sp_p, self.sp_h)
+
+                text = f"[{device_id}:PFI{pfi:+.2f},AE{ae_norm:.2f},{label}]"
+
                 if dev.is_updated():
-                    logger.info(f"[{device_id}] 🌿 配信: {text}")
+                    logger.info(
+                        f"[{device_id}] 🌿 {label} → sp={sp_val} "
+                        f"(PFI={pfi:+.3f}, AE_norm={ae_norm:.3f})"
+                    )
+
                 self.send_to_relay(text, sp_b64, source=device_id)
                 dev.last_sent = now
 
@@ -369,26 +387,27 @@ class PlantSensorProcessor:
         )
         transport, _ = await server.create_serve_endpoint()
 
-        logger.info("=" * 55)
+        logger.info("=" * 60)
         logger.info("🌱 植物センサー プロセッサ 起動")
         logger.info(f"  OSC受信:   {listen_ip}:{port}")
         logger.info(f"  送信先Mac: {self.relay_host}:{self.relay_port}")
         logger.info(f"  CFデバイス: {list(self.cf_devices.keys())}")
         ae_status = f"有効 ({self.ae_watcher.csv_dir})" if self.ae_watcher.enabled else "無効"
         logger.info(f"  AEセンサー: {ae_status}")
+        logger.info(f"  マトリクス:")
+        for key in [(0,0),(0,1),(0,2),(1,0),(1,1),(1,2),(2,0),(2,1),(2,2)]:
+            ae_l = ["AE低","AE中","AE高"][key[0]]
+            cf_l = ["CF悪化","CF安定","CF良化"][key[1]]
+            logger.info(f"    {ae_l}+{cf_l} → {self.matrix.matrix[key]}")
         logger.info(f"  配信間隔:  {self.min_send_interval}s")
         if self.dry_run:
             logger.info("  モード:    dry-run (送信なし)")
-        logger.info("=" * 55)
+        logger.info("=" * 60)
 
-        tasks = [asyncio.create_task(self.cf_distribution_loop())]
-
-        if self.ae_watcher.enabled:
-            tasks.append(asyncio.create_task(
-                self.ae_watcher.poll_loop(
-                    self.sp_p, self.sp_h, self.ae_max_count, self.send_to_relay)
-            ))
-
+        tasks = [
+            asyncio.create_task(self.distribution_loop()),
+            asyncio.create_task(self.ae_watcher.poll_loop()),
+        ]
         await asyncio.gather(*tasks)
 
 

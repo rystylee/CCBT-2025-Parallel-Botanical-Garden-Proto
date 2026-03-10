@@ -15,18 +15,42 @@
   "min_send_interval_sec": 3.0,
 
   "cf_devices": {
-    "_desc": "クロロフィル蛍光(CF)デバイス。OSCで /CF0x/* を送ってくる",
-    "CF01": { "source_ip": "10.0.0.211" },
-    "CF02": { "source_ip": "10.0.0.212" }
+    "_desc": "クロロフィル蛍光(CF)デバイス",
+    "CF00": { "source_ip": "10.0.0.211" },
+    "CF01": { "source_ip": "10.0.0.212" }
   },
 
   "ae_sensor": {
-    "_desc": "AEセンサー (陰山先生)。手動DLしたCSVをフォルダに入れると自動読み取り",
+    "_desc": "AEセンサー。手動DLしたCSVを ae_csv/ に配置",
     "enabled": true,
     "csv_dir": "ae_csv",
     "poll_interval_sec": 30,
     "ae_column": "AE",
-    "max_ae_count": 200,
-    "_desc_max": "正規化用の最大値。AE値 / max_ae_count で 0~1 に変換"
+    "max_ae_count": 200
+  },
+
+  "matrix": {
+    "_desc": "=== AE×CF → soft_prefix 2軸マトリクス ===",
+    "_desc2": "全状態が強い影響。植物の状態で揺らぎの'性格'が変わる",
+
+    "ae_thresholds": [0.33, 0.66],
+    "_desc_ae": "AE正規化値の境界 → [低, 中, 高] の3段階",
+
+    "cf_thresholds": [-0.3, 0.3],
+    "_desc_cf": "PFI値の境界 → [悪化, 安定, 良化] の3段階",
+
+    "values": {
+      "_desc": "matrix[AE段階][CF段階] → soft_prefix BF16値",
+      "_desc_meaning": "1e-3=収束的(硬い揺らぎ) → 1e-2=発散的(自由な揺らぎ)",
+      "low_worse":    0.001,
+      "low_stable":   0.003,
+      "low_better":   0.007,
+      "mid_worse":    0.003,
+      "mid_stable":   0.007,
+      "mid_better":   0.01,
+      "high_worse":   0.007,
+      "high_stable":  0.01,
+      "high_better":  0.01
+    }
   }
 }
