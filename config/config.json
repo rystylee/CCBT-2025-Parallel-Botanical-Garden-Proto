@@ -181,12 +181,18 @@
       }
     ],
     "fade_steps": 40,
-    "fade_up_duration": 2.0,
-    "fade_down_duration": 2.0,
+    "fade_up_duration": 6.0,
+    "fade_down_duration": 6.0,
     "receiving_min_brightness": 0.0,
     "receiving_max_brightness": 0.1,
     "waiting_min_brightness": 0.05,
     "waiting_max_brightness": 0.25,
+    "soft_prefix": {
+      "default_fade_up_duration": 2.0,
+      "_default_fade_up_duration_note": "Soft prefix update event: default fade up duration (0.0 -> 1.0) in seconds",
+      "default_fade_down_duration": 2.0,
+      "_default_fade_down_duration_note": "Soft prefix update event: default fade down duration (1.0 -> 0.0) in seconds"
+    },
     "pca9685": {
       "addr": 64,
       "channel": 0,

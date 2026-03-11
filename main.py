@@ -9,7 +9,6 @@ from bi import BIController
 from pca9685_osc_led_server import start_led_server
 from utils import load_network_config
 
-
 DEVICE_ID_FILE = "/etc/ccbt-device-id"
 NETWORK_INTERFACES = "/etc/network/interfaces"
 
@@ -17,12 +16,15 @@ NETWORK_INTERFACES = "/etc/network/interfaces"
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_path", type=str, default="config/config.json")
-    parser.add_argument("--device-id", type=int, default=None,
-                        help="Device ID (e.g. 61). If omitted, auto-detected from network config")
-    parser.add_argument("--raw-audio", action="store_true",
-                        help="Debug mode: skip FFmpeg processing, save raw WAV, play with aplay")
-    parser.add_argument("--listen-host", type=str, default=None,
-                        help="Override OSC listen address (e.g. 0.0.0.0 for test env)")
+    parser.add_argument(
+        "--device-id", type=int, default=None, help="Device ID (e.g. 61). If omitted, auto-detected from network config"
+    )
+    parser.add_argument(
+        "--raw-audio", action="store_true", help="Debug mode: skip FFmpeg processing, save raw WAV, play with aplay"
+    )
+    parser.add_argument(
+        "--listen-host", type=str, default=None, help="Override OSC listen address (e.g. 0.0.0.0 for test env)"
+    )
     return parser.parse_args()
 
 
@@ -33,11 +35,16 @@ def resolve_lang_from_device_id(device_id: int) -> str:
     """
     last_digit = device_id % 10
     mapping = {
-        1: "ja", 2: "ja",
-        3: "en", 4: "en",
-        5: "fr", 6: "fr",
-        7: "fa", 8: "fa",
-        9: "ar", 0: "ar",
+        1: "ja",
+        2: "ja",
+        3: "en",
+        4: "en",
+        5: "fr",
+        6: "fr",
+        7: "fa",
+        8: "fa",
+        9: "ar",
+        0: "ar",
     }
     return mapping[last_digit]
 
@@ -138,9 +145,34 @@ async def async_main():
     def handle_bi_status(_, *__):
         logger.info(f"BI Status: {bi.get_status()}")
 
+    def handle_soft_prefix_update(_, *args):
+        """Handle soft prefix update event with LED performance.
+
+        OSC message format: /bi/soft_prefix_update fade_up_duration fade_down_duration
+
+        Args:
+            args[0]: fade_up_duration (float) - Duration in seconds for fade up (0.0 -> 1.0)
+            args[1]: fade_down_duration (float) - Duration in seconds for fade down (1.0 -> 0.0)
+        """
+        if len(args) < 2:
+            logger.warning(f"Invalid args for /bi/soft_prefix_update: {args}")
+            return
+
+        try:
+            fade_up = float(args[0])
+            fade_down = float(args[1])
+
+            # Start LED performance task (non-blocking)
+            asyncio.create_task(bi.start_soft_prefix_led_performance(fade_up, fade_down))
+
+            logger.info(f"Soft prefix update: LED performance triggered (up={fade_up}s, down={fade_down}s)")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to parse soft_prefix_update args: {args}, error: {e}")
+
     app.osc_server.register_handler("/bi/input", handle_bi_input)
     app.osc_server.register_handler("/bi/stop", handle_bi_stop)
     app.osc_server.register_handler("/bi/status", handle_bi_status)
+    app.osc_server.register_handler("/bi/soft_prefix_update", handle_soft_prefix_update)
 
     # Auto-start BI cycle on startup
     logger.info("Auto-starting BI cycle")
