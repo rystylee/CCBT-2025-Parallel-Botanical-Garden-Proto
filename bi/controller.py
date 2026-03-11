@@ -83,11 +83,30 @@ class BIController:
         """Phase 1: Receive input data for specified duration"""
         logger.info("RECEIVING phase started")
 
+        # Start LED pulsing for RECEIVING state
+        led_config = self.config.get("led_control", {})
+        receiving_min = led_config.get("receiving_min_brightness", 0.0)
+        receiving_max = led_config.get("receiving_max_brightness", 0.1)
+
+        # Fade to receiving_max brightness
+        logger.info(f"LED fade to receiving_max: {receiving_max:.2f}")
+        await self._led_fade(0.0, receiving_max)
+
+        # Start pulsing with RECEIVING-specific brightness range
+        logger.info(f"LED pulse loop starting for RECEIVING: {receiving_min:.2f} <-> {receiving_max:.2f}")
+        self._pulse_task = asyncio.create_task(
+            self._led_pulse_loop(min_brightness=receiving_min, max_brightness=receiving_max)
+        )
+
         # Start waiting audio loop
         await self._start_waiting_loop()
 
         receive_duration = self.config.get("cycle", {}).get("receive_duration", 3.0)
         await asyncio.sleep(receive_duration)
+
+        # Stop pulsing before moving to GENERATING
+        logger.info("Stopping LED pulse for RECEIVING phase")
+        await self._stop_pulse()
 
         logger.info(f"Buffer size: {len(self.input_buffer)}")
         self.state = "GENERATING"
@@ -114,9 +133,7 @@ class BIController:
 
         # Generate 2-3 tokens with LLM
         try:
-            sp_b64 = override_soft_prefix_val(
-                self.input_buffer[-1].soft_prefix_b64, self.config
-            )
+            sp_b64 = override_soft_prefix_val(self.input_buffer[-1].soft_prefix_b64, self.config)
             generated_text = await self.llm_client.generate_text(
                 query=concatenated_text,
                 soft_prefix_b64=sp_b64,
@@ -159,9 +176,7 @@ class BIController:
         # If WAV preparation succeeded, play it with LED animation
         if wav_path is not None:
             # Step 3: Start generated WAV playback first (non-blocking)
-            playback_proc = await asyncio.to_thread(
-                self.tts_client.start_playback, wav_path
-            )
+            playback_proc = await asyncio.to_thread(self.tts_client.start_playback, wav_path)
 
             # Step 4: Stop waiting audio (brief crossfade overlap via dmix)
             await self._stop_waiting_loop()
@@ -173,7 +188,9 @@ class BIController:
             try:
                 ret = await asyncio.to_thread(playback_proc.wait)
                 if ret != 0:
-                    stderr = playback_proc.stderr.read().decode(errors="replace").strip() if playback_proc.stderr else ""
+                    stderr = (
+                        playback_proc.stderr.read().decode(errors="replace").strip() if playback_proc.stderr else ""
+                    )
                     logger.error(f"TTS playback failed (rc={ret}): {stderr}")
             except Exception as e:
                 logger.error(f"Error in TTS playback: {e}")
@@ -247,11 +264,7 @@ class BIController:
 
         next_relay_count = relay_count + 1
 
-        data = BIInputData(
-            soft_prefix_b64=soft_prefix_b64,
-            relay_count=next_relay_count,
-            text=text.strip()
-        )
+        data = BIInputData(soft_prefix_b64=soft_prefix_b64, relay_count=next_relay_count, text=text.strip())
         self.input_buffer.append(data)
         logger.info(
             f"Added input: '{text[:20]}...' relay_count={relay_count}->{next_relay_count} "
@@ -273,6 +286,7 @@ class BIController:
 
         # Collect matching files
         import glob
+
         patterns = [
             os.path.join(waiting_dir, f"{waiting_prefix}*.wav"),
             os.path.join(waiting_dir, f"{waiting_prefix}*.mp3"),
@@ -283,9 +297,7 @@ class BIController:
         files.sort()
 
         if not files:
-            logger.warning(
-                f"No waiting audio files found: {waiting_dir}/{waiting_prefix}*"
-            )
+            logger.warning(f"No waiting audio files found: {waiting_dir}/{waiting_prefix}*")
             return
 
         # Ensure all files match dmixer format (48000Hz, 2ch, s16)
@@ -294,23 +306,25 @@ class BIController:
         target_fmt = audio_config.get("sample_format", "s16")
         files = await asyncio.to_thread(
             self._ensure_waiting_audio_format,
-            files, target_sr, target_ch, target_fmt,
+            files,
+            target_sr,
+            target_ch,
+            target_fmt,
         )
 
         if not files:
             logger.warning("No valid waiting audio files after format conversion")
             return
 
-        logger.info(
-            f"Starting waiting audio loop: {len(files)} files "
-            f"in {waiting_dir}/ prefix={waiting_prefix}"
-        )
-        self._waiting_loop_task = asyncio.create_task(
-            self._waiting_loop(files, playback_device)
-        )
+        logger.info(f"Starting waiting audio loop: {len(files)} files " f"in {waiting_dir}/ prefix={waiting_prefix}")
+        self._waiting_loop_task = asyncio.create_task(self._waiting_loop(files, playback_device))
 
     def _ensure_waiting_audio_format(
-        self, files: list, sample_rate: int, channels: int, sample_format: str,
+        self,
+        files: list,
+        sample_rate: int,
+        channels: int,
+        sample_format: str,
     ) -> list:
         """Convert waiting audio files to dmixer-compatible format if needed.
 
@@ -347,11 +361,19 @@ class BIController:
                     out_path = path.rsplit(".", 1)[0] + ".wav"
                     tmp_path = out_path + ".tmp.wav"
                     cmd = [
-                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                        "-i", path,
-                        "-ar", str(sample_rate),
-                        "-ac", str(channels),
-                        "-sample_fmt", sample_format,
+                        "ffmpeg",
+                        "-y",
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        path,
+                        "-ar",
+                        str(sample_rate),
+                        "-ac",
+                        str(channels),
+                        "-sample_fmt",
+                        sample_format,
                         tmp_path,
                     ]
                     logger.info(f"Converting waiting audio: {path} -> {sample_rate}Hz/{channels}ch/{sample_format}")
@@ -365,6 +387,7 @@ class BIController:
                 logger.warning(f"Failed to prepare waiting audio {path}: {e}")
 
         return playable
+
     async def _waiting_loop(self, files: list, playback_device: str):
         """Keep playing random waiting audio until cancelled."""
         import random
@@ -381,9 +404,7 @@ class BIController:
 
                 logger.debug(f"Waiting audio play: {' '.join(cmd)}")
                 proc = await asyncio.to_thread(
-                    lambda: subprocess.Popen(
-                        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
-                    )
+                    lambda: subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 )
                 self._waiting_proc = proc
                 ret = await asyncio.to_thread(proc.wait)
@@ -473,11 +494,15 @@ class BIController:
 
         logger.debug(f"LED fade complete: {end:.2f}")
 
-    async def _led_pulse_loop(self):
-        """Continuously pulse LED between waiting_min and waiting_max brightness.
+    async def _led_pulse_loop(self, min_brightness=None, max_brightness=None):
+        """Continuously pulse LED between min and max brightness.
 
         Runs until cancelled. Uses the same fade_steps / fade_up_duration /
-        fade_down_duration as normal fades, scaled to the waiting brightness range.
+        fade_down_duration as normal fades, scaled to the brightness range.
+
+        Args:
+            min_brightness: Minimum brightness (0.0-1.0). If None, uses waiting_min_brightness from config.
+            max_brightness: Maximum brightness (0.0-1.0). If None, uses waiting_max_brightness from config.
         """
         led_config = self.config.get("led_control", {})
         if not led_config.get("enabled", False):
@@ -487,8 +512,14 @@ class BIController:
         if not targets:
             return
 
-        waiting_min = led_config.get("waiting_min_brightness", 0.2)
-        waiting_max = led_config.get("waiting_max_brightness", 0.6)
+        # Use parameters or fall back to waiting_ config (for GENERATING phase)
+        if min_brightness is None:
+            min_brightness = led_config.get("waiting_min_brightness", 0.2)
+        if max_brightness is None:
+            max_brightness = led_config.get("waiting_max_brightness", 0.6)
+
+        waiting_min = min_brightness
+        waiting_max = max_brightness
         steps = led_config.get("fade_steps", 40)
         fade_up_duration = led_config.get("fade_up_duration", 2.0)
         fade_down_duration = led_config.get("fade_down_duration", 2.0)
