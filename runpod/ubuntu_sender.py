@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Ubuntu → RunPod テキスト送信
+"""Ubuntu → RunPod テキスト送信 (バッファリング付き)
 
 Ubuntu PC (10.0.0.200) 上で動作。
 各 M5Stack デバイスから OSC /mixer で受け取った生成文章を
+バッファに溜め、一定文字数以上になったらまとめて
 JSON ファイルとして RunPod へ SCP 転送する。
 
 使い方:
     python ubuntu_sender.py
     python ubuntu_sender.py --config runpod_config.json
     python ubuntu_sender.py --dry-run   # SCP せずにローカル保存のみ
-
-環境変数でも上書き可能:
-    OSC_LISTEN_IP=0.0.0.0  OSC_LISTEN_PORT=8000  python ubuntu_sender.py
 """
 
 import argparse
@@ -29,11 +27,25 @@ from pythonosc.osc_server import BlockingOSCUDPServer
 
 from ssh_helper import load_config, ssh_run, scp_upload
 
+# ============================================================
+# バッファリング設定 (後で config に移す候補)
+# ============================================================
+MIN_CHARS_TO_SEND = 50      # この文字数以上でバッファをフラッシュ
+MAX_WAIT_SEC = 30.0          # 文字数未達でもこの秒数経過したらフラッシュ
+MAX_BUFFER_ITEMS = 20        # バッファ内メッセージ数の上限 (溢れ防止)
+# ============================================================
+
 # ── グローバル ──
 _cfg: dict = {}
 _dry_run: bool = False
 _send_lock = threading.Lock()
-_stats = {"sent": 0, "failed": 0, "last_sent": None}
+_stats = {"sent": 0, "failed": 0, "buffered": 0, "last_sent": None}
+
+# バッファ
+_buffer: list[dict] = []
+_buffer_lock = threading.Lock()
+_buffer_chars = 0
+_buffer_first_time: float = 0.0
 
 
 def ensure_remote_dir(cfg: dict):
@@ -69,25 +81,37 @@ def upload_json(cfg: dict, payload: dict, filename: str):
             pass
 
 
-def on_mixer(address: str, *args):
-    """OSC /mixer ハンドラ"""
+def flush_buffer(reason: str = ""):
+    """バッファ内のテキストをまとめて1つのJSONとしてRunPodへ送信"""
+    global _buffer, _buffer_chars, _buffer_first_time
+
+    with _buffer_lock:
+        if not _buffer:
+            return
+        items = _buffer[:]
+        total_chars = _buffer_chars
+        _buffer = []
+        _buffer_chars = 0
+        _buffer_first_time = 0.0
+
+    merged_text = "\n".join(item["text"] for item in items)
+
     now = datetime.now().astimezone()
     ts = now.strftime("%Y%m%d_%H%M%S_%f")[:-3]
     filename = f"mixer_{ts}.json"
 
-    text = " ".join(str(a) for a in args).strip()
-    if not text:
-        print(f"[sender] ⚠️  空テキスト受信、スキップ")
-        return
-
     payload = {
         "received_at": now.isoformat(),
-        "address": address,
-        "args": list(args),
-        "text": text,
+        "address": "/mixer",
+        "text": merged_text,
+        "item_count": len(items),
+        "total_chars": total_chars,
+        "items": items,
     }
 
-    print(f"[sender] 受信: {address} → 「{text[:60]}{'...' if len(text) > 60 else ''}」")
+    reason_str = f" ({reason})" if reason else ""
+    print(f"[sender] 📦 フラッシュ: {len(items)}件, {total_chars}文字{reason_str}")
+    print(f"[sender]    テキスト: 「{merged_text[:80]}{'...' if len(merged_text) > 80 else ''}」")
 
     if _dry_run:
         dry_dir = Path("./dry_run_json")
@@ -98,7 +122,6 @@ def on_mixer(address: str, *args):
         print(f"[sender] (dry-run) 保存: {dry_dir / filename}")
         return
 
-    # SCP送信 (スレッドセーフ)
     with _send_lock:
         ok = upload_json(_cfg, payload, filename)
         if ok:
@@ -110,9 +133,72 @@ def on_mixer(address: str, *args):
             print(f"[sender] ❌ 送信失敗 (通算失敗: {_stats['failed']})")
 
 
+def on_mixer(address: str, *args):
+    """OSC /mixer ハンドラ — バッファに追加"""
+    global _buffer_chars, _buffer_first_time
+
+    text = " ".join(str(a) for a in args).strip()
+    if not text:
+        print(f"[sender] ⚠️  空テキスト受信、スキップ")
+        return
+
+    now = datetime.now().astimezone()
+    item = {
+        "text": text,
+        "received_at": now.isoformat(),
+        "address": address,
+    }
+
+    with _buffer_lock:
+        _buffer.append(item)
+        _buffer_chars += len(text)
+        if _buffer_first_time == 0.0:
+            _buffer_first_time = time.time()
+
+        current_chars = _buffer_chars
+        current_count = len(_buffer)
+
+    _stats["buffered"] = current_count
+    print(f"[sender] 受信: 「{text[:50]}{'...' if len(text) > 50 else ''}」"
+          f" (バッファ: {current_count}件/{current_chars}文字)")
+
+    # 文字数閾値チェック
+    if current_chars >= MIN_CHARS_TO_SEND:
+        flush_buffer(reason=f"{current_chars}文字 >= {MIN_CHARS_TO_SEND}")
+
+    # メッセージ数上限チェック
+    elif current_count >= MAX_BUFFER_ITEMS:
+        flush_buffer(reason=f"{current_count}件 >= {MAX_BUFFER_ITEMS}")
+
+
+def buffer_timeout_watcher():
+    """バッファのタイムアウト監視スレッド"""
+    while True:
+        time.sleep(1.0)
+
+        with _buffer_lock:
+            if not _buffer or _buffer_first_time == 0.0:
+                continue
+            elapsed = time.time() - _buffer_first_time
+            count = len(_buffer)
+            chars = _buffer_chars
+
+        if elapsed >= MAX_WAIT_SEC:
+            flush_buffer(reason=f"タイムアウト {elapsed:.0f}s >= {MAX_WAIT_SEC}s, {count}件/{chars}文字")
+
+
 def on_status(address: str, *args):
     """OSC /runpod/status で統計表示"""
-    print(f"[sender] 統計: sent={_stats['sent']} failed={_stats['failed']} last={_stats['last_sent']}")
+    with _buffer_lock:
+        buf_count = len(_buffer)
+        buf_chars = _buffer_chars
+    print(f"[sender] 統計: sent={_stats['sent']} failed={_stats['failed']} "
+          f"buffer={buf_count}件/{buf_chars}文字 last={_stats['last_sent']}")
+
+
+def on_flush(address: str, *args):
+    """OSC /runpod/flush でバッファ強制フラッシュ"""
+    flush_buffer(reason="手動フラッシュ (/runpod/flush)")
 
 
 def main():
@@ -137,16 +223,22 @@ def main():
         print("[sender] RunPod接続テスト...")
         ensure_remote_dir(_cfg)
 
+    # タイムアウト監視スレッド起動
+    watcher = threading.Thread(target=buffer_timeout_watcher, daemon=True)
+    watcher.start()
+
     # OSCサーバー設定
     disp = Dispatcher()
     disp.map(osc_address, on_mixer)
     disp.map("/runpod/status", on_status)
+    disp.map("/runpod/flush", on_flush)
 
     server = BlockingOSCUDPServer((osc_ip, osc_port), disp)
 
     print(f"[sender] ============================")
     print(f"[sender] Ubuntu → RunPod テキスト送信")
     print(f"[sender] OSC受信: udp://{osc_ip}:{osc_port}  {osc_address}")
+    print(f"[sender] バッファ: {MIN_CHARS_TO_SEND}文字以上 or {MAX_WAIT_SEC}s経過 or {MAX_BUFFER_ITEMS}件 でフラッシュ")
     if _dry_run:
         print(f"[sender] モード: dry-run (ローカル保存のみ)")
     else:
@@ -157,6 +249,7 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        flush_buffer(reason="終了時フラッシュ")
         print(f"\n[sender] 終了。sent={_stats['sent']} failed={_stats['failed']}")
 
 
