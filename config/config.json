@@ -33,7 +33,7 @@
 
     "waiting_audio_dir": "audio",
         "_waiting_audio_dir_note": "待機音ファイルを探すディレクトリ",
-        "waiting_audio_prefix": "waiting_",
+        "waiting_audio_prefix": "AE_",
         "_waiting_audio_prefix_note": "このプレフィックスで始まるファイル(.wav/.mp3)からランダム再生",
 
     "playback_device": "dmixer",
