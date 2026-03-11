@@ -591,39 +591,43 @@ class BIController:
         start_with_down = current >= mid_point
 
         try:
+            # First move to the appropriate starting position
+            if start_with_down:
+                # Start by fading down to min
+                for i in range(steps + 1):
+                    value = waiting_max - (waiting_max - waiting_min) * (i / steps)
+                    await self._send_led(targets, value)
+                    self._current_led_brightness = value
+                    if i < steps:
+                        await asyncio.sleep(dt_down)
+            else:
+                # Start by fading up to max
+                for i in range(steps + 1):
+                    value = waiting_min + (waiting_max - waiting_min) * (i / steps)
+                    await self._send_led(targets, value)
+                    self._current_led_brightness = value
+                    if i < steps:
+                        await asyncio.sleep(dt_up)
+
+            # Now continuously alternate between max and min
             while True:
-                if start_with_down:
-                    # Fade down: waiting_max -> waiting_min
+                # We're at either max or min, so toggle to the other
+                if self._current_led_brightness >= mid_point:
+                    # Currently at or near max, fade down to min
                     for i in range(steps + 1):
                         value = waiting_max - (waiting_max - waiting_min) * (i / steps)
                         await self._send_led(targets, value)
                         self._current_led_brightness = value
                         if i < steps:
                             await asyncio.sleep(dt_down)
-
-                    # Fade up: waiting_min -> waiting_max
-                    for i in range(steps + 1):
-                        value = waiting_min + (waiting_max - waiting_min) * (i / steps)
-                        await self._send_led(targets, value)
-                        self._current_led_brightness = value
-                        if i < steps:
-                            await asyncio.sleep(dt_up)
                 else:
-                    # Fade up: waiting_min -> waiting_max
+                    # Currently at or near min, fade up to max
                     for i in range(steps + 1):
                         value = waiting_min + (waiting_max - waiting_min) * (i / steps)
                         await self._send_led(targets, value)
                         self._current_led_brightness = value
                         if i < steps:
                             await asyncio.sleep(dt_up)
-
-                    # Fade down: waiting_max -> waiting_min
-                    for i in range(steps + 1):
-                        value = waiting_max - (waiting_max - waiting_min) * (i / steps)
-                        await self._send_led(targets, value)
-                        self._current_led_brightness = value
-                        if i < steps:
-                            await asyncio.sleep(dt_down)
 
         except asyncio.CancelledError:
             logger.debug(f"LED pulse loop cancelled at brightness {self._current_led_brightness:.2f}")
