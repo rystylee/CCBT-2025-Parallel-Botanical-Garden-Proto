@@ -5,24 +5,28 @@ CF (クロロフィル蛍光) デバイス受信チェック — スタンドア
 10.0.0.200 上で実行し、CF デバイスからの OSC メッセージを
 受信できているか確認する。プロジェクト内モジュールへの依存なし。
 
-/CF1, /CF2, /CF00, /CF01 等すべての /CF* プレフィックスをキャッチ。
+全 /CF* プレフィックスをキャッチ。
 
 使い方:
   # デフォルト (port 8000, 60秒)
   uv run python scripts/check_cf.py
 
+  # 全メッセージをそのまま表示 (推奨: まず --raw で確認)
+  uv run python scripts/check_cf.py --raw
+
+  # ポート全受信 (CF以外も含む全OSCを表示)
+  uv run python scripts/check_cf.py --raw --all
+
   # ポート・時間指定
   uv run python scripts/check_cf.py --port 8000 --duration 120
-
-  # 詳細ログ (全受信メッセージ表示)
-  uv run python scripts/check_cf.py --verbose
 """
 import argparse
 import asyncio
 import sys
 import time
-from dataclasses import dataclass
-from typing import Dict
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, List, Any
 
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import AsyncIOOSCUDPServer
@@ -40,73 +44,72 @@ CLASS_LABELS = {
 
 
 @dataclass
-class CFState:
-    pfi_change: float = 0.0
-    pfi_class: int = 3
-    flag: str = "same"
-    timestamp: float = 0.0
-    update_count: int = 0
-    msg_count: int = 0
+class AddressInfo:
+    """各OSCアドレスの最新値と統計"""
+    latest_args: list = field(default_factory=list)
+    count: int = 0
+    first_seen: float = 0.0
+    last_seen: float = 0.0
 
 
 class CFChecker:
-    """全 /CF* OSC メッセージを受信・表示"""
+    """全 OSC メッセージを受信・記録"""
 
-    def __init__(self, port: int, verbose: bool):
+    def __init__(self, port: int, raw: bool, show_all: bool):
         self.port = port
-        self.verbose = verbose
-        self.devices: Dict[str, CFState] = {}
+        self.raw = raw
+        self.show_all = show_all
+
+        # address ごとの統計
+        self.addresses: Dict[str, AddressInfo] = {}
+        # デバイスごとのアドレス一覧
+        self.device_addresses: Dict[str, set] = defaultdict(set)
+        # 総メッセージ数
+        self.total_msgs = 0
+
         self._dispatcher = Dispatcher()
         self._dispatcher.set_default_handler(self._on_any)
 
-    def _get_device(self, address: str):
-        """'/CF1/PFI_degree_of_change' → ('CF1', 'PFI_degree_of_change')"""
-        parts = address.strip("/").split("/", 1)
-        if len(parts) < 2:
-            return None, None
-        cf_id = parts[0]
-        param = parts[1]
-        if cf_id not in self.devices:
-            self.devices[cf_id] = CFState()
-            print(f"  ✦ 新しいデバイス検出: {cf_id}")
-        return cf_id, param
-
     def _on_any(self, address: str, *args):
-        if not address.startswith("/CF"):
-            if self.verbose:
-                print(f"  (other) {address}: {args}")
+        # CF以外をフィルタ (--all でなければ)
+        if not self.show_all and not address.startswith("/CF"):
             return
 
-        cf_id, param = self._get_device(address)
-        if cf_id is None:
-            return
+        now = time.time()
+        self.total_msgs += 1
 
-        dev = self.devices[cf_id]
-        dev.msg_count += 1
-        dev.timestamp = time.time()
+        # アドレスごとの記録
+        if address not in self.addresses:
+            self.addresses[address] = AddressInfo(first_seen=now)
+        info = self.addresses[address]
+        info.latest_args = list(args)
+        info.count += 1
+        info.last_seen = now
 
-        if param == "PFI_degree_of_change" and args:
-            dev.pfi_change = float(args[0])
-            if self.verbose:
-                print(f"  [{cf_id}] PFI change = {dev.pfi_change:+.4f}")
+        # デバイスID抽出
+        parts = address.strip("/").split("/", 1)
+        if len(parts) >= 1:
+            self.device_addresses[parts[0]].add(address)
 
-        elif param == "PFI_degree_of_change_class" and args:
-            dev.pfi_class = int(args[0])
-            if self.verbose:
-                label = CLASS_LABELS.get(dev.pfi_class, "?")
-                print(f"  [{cf_id}] PFI class  = {dev.pfi_class} ({label})")
+        # raw モード: 全メッセージ即時表示
+        if self.raw:
+            # 引数の型と値を表示
+            arg_strs = []
+            for a in args:
+                if isinstance(a, float):
+                    arg_strs.append(f"{a:+.6f} (float)")
+                elif isinstance(a, int):
+                    arg_strs.append(f"{a} (int)")
+                elif isinstance(a, str):
+                    arg_strs.append(f'"{a}" (str)')
+                else:
+                    arg_strs.append(f"{a!r} ({type(a).__name__})")
 
-        elif param == "flag" and args:
-            val = str(args[0])
-            dev.flag = val
-            if val == "updated":
-                dev.update_count += 1
-                print(f"  [{cf_id}] ★ DATA UPDATED (count={dev.update_count})")
-            elif self.verbose:
-                print(f"  [{cf_id}] flag = {val}")
-        else:
-            if self.verbose:
-                print(f"  [{cf_id}] {param} = {args}")
+            elapsed = now - self._start_time if hasattr(self, '_start_time') else 0
+            print(f"  [{elapsed:6.1f}s] {address}  →  {', '.join(arg_strs)}")
+
+    def set_start_time(self, t: float):
+        self._start_time = t
 
     async def start(self):
         server = AsyncIOOSCUDPServer(
@@ -116,83 +119,114 @@ class CFChecker:
         return transport
 
 
-async def run_check(port: int, duration: float, verbose: bool):
-    checker = CFChecker(port, verbose)
+def print_address_table(checker: CFChecker, elapsed: float):
+    """全アドレスの一覧を表形式で表示"""
+    if not checker.addresses:
+        print(f"[{elapsed:.0f}s] 受信待ち...")
+        return
+
+    # デバイスごとにグループ化
+    for dev_id in sorted(checker.device_addresses.keys()):
+        addrs = sorted(checker.device_addresses[dev_id])
+        print(f"  ── {dev_id} ({len(addrs)} addresses) ──")
+        for addr in addrs:
+            info = checker.addresses[addr]
+            age = time.time() - info.last_seen
+            alive = "●" if age < 5.0 else "○"
+
+            # パラメータ名を短縮表示
+            param = addr.split("/", 2)[-1] if addr.count("/") >= 2 else addr
+
+            # 値の表示
+            val_str = ""
+            for a in info.latest_args:
+                if isinstance(a, float):
+                    val_str += f"{a:+.6f} "
+                elif isinstance(a, int):
+                    val_str += f"{a} "
+                elif isinstance(a, str):
+                    val_str += f'"{a}" '
+                else:
+                    val_str += f"{a!r} "
+
+            print(
+                f"    {alive} {param:<35s}  "
+                f"= {val_str:<20s}  "
+                f"(n={info.count})"
+            )
+    print()
+
+
+async def run_check(port: int, duration: float, raw: bool, show_all: bool):
+    checker = CFChecker(port, raw, show_all)
     transport = await checker.start()
 
+    start = time.time()
+    checker.set_start_time(start)
+
+    filter_desc = "全OSC" if show_all else "/CF* のみ"
+    mode_desc = "RAW (全メッセージ表示)" if raw else "サマリー (3秒ごと)"
+
     print()
-    print("=" * 60)
+    print("=" * 70)
     print(f"  CF 受信チェック — port {port}")
-    print(f"  CF1 (10.0.0.211), CF2 (10.0.0.212) → ここ")
-    print(f"  全 /CF* プレフィックスをキャッチ")
+    print(f"  モード: {mode_desc}")
+    print(f"  フィルタ: {filter_desc}")
     print(f"  {duration:.0f}秒間モニタリング... (Ctrl+C で終了)")
-    print("=" * 60)
+    print("=" * 70)
     print()
 
-    start = time.time()
-    last_print = 0
+    last_summary = 0
 
     try:
         while (time.time() - start) < duration:
             await asyncio.sleep(1.0)
             elapsed = int(time.time() - start)
 
-            # 3秒ごとにステータス表示
-            if elapsed - last_print >= 3:
-                last_print = elapsed
+            # raw モードでないときは 3秒ごとにサマリー
+            if not raw and elapsed - last_summary >= 3:
+                last_summary = elapsed
+                print(f"[{elapsed:4d}s] ─── total msgs: {checker.total_msgs} ───")
+                print_address_table(checker, elapsed)
 
-                if not checker.devices:
-                    print(f"[{elapsed:4d}s] 受信待ち...")
-                    continue
-
-                print(f"[{elapsed:4d}s] ──────────────────────────────────")
-                for cf_id in sorted(checker.devices.keys()):
-                    dev = checker.devices[cf_id]
-                    age = time.time() - dev.timestamp if dev.timestamp > 0 else 999
-                    alive = age < 5.0
-                    status = "● ALIVE" if alive else f"○ {age:.0f}s ago"
-                    cls_label = CLASS_LABELS.get(dev.pfi_class, "?")
-                    print(
-                        f"  {cf_id}: {status}  "
-                        f"change={dev.pfi_change:+.4f}  "
-                        f"class={dev.pfi_class} ({cls_label})  "
-                        f"flag={dev.flag}  "
-                        f"updates={dev.update_count}  "
-                        f"msgs={dev.msg_count}"
-                    )
-                print()
+            # raw モードでも 10秒ごとに軽いサマリー
+            if raw and elapsed - last_summary >= 10:
+                last_summary = elapsed
+                n_addr = len(checker.addresses)
+                n_dev = len(checker.device_addresses)
+                print(
+                    f"\n  --- [{elapsed}s] {checker.total_msgs} msgs, "
+                    f"{n_dev} devices, {n_addr} unique addresses ---\n"
+                )
 
     except asyncio.CancelledError:
         pass
 
     transport.close()
 
-    # サマリー
+    # ===== サマリー =====
     print()
-    print("=" * 60)
+    print("=" * 70)
     print("  結果サマリー")
-    print("=" * 60)
+    print("=" * 70)
 
-    if not checker.devices:
+    if not checker.addresses:
         print("  ! デバイスから受信なし。確認事項:")
         print(f"    - CFデバイスの送信先が 10.0.0.200:{port} になっているか")
         print(f"    - ファイアウォールで UDP {port} が開いているか")
         print(f"    - CFデバイスが起動して計測中か")
         print()
-        print("  ローカルテスト:")
-        print("    別ターミナルで simulate_cf.py を実行:")
-        print(f"    uv run python scripts/simulate_cf.py --port {port}")
-        print()
         return 1
 
-    for cf_id in sorted(checker.devices.keys()):
-        dev = checker.devices[cf_id]
-        print(
-            f"  {cf_id}: OK — msgs={dev.msg_count}, "
-            f"updates={dev.update_count}, "
-            f"最終 change={dev.pfi_change:+.4f}, class={dev.pfi_class}"
-        )
+    print(f"  総メッセージ数: {checker.total_msgs}")
+    print(f"  検出デバイス数: {len(checker.device_addresses)}")
+    print(f"  ユニークアドレス数: {len(checker.addresses)}")
     print()
+
+    # 全アドレス最終状態
+    print("  全アドレス一覧:")
+    print_address_table(checker, time.time() - start)
+
     return 0
 
 
@@ -202,12 +236,14 @@ def main():
                         help="OSC listen port (default: 8000)")
     parser.add_argument("--duration", type=float, default=60,
                         help="Monitor duration in seconds (default: 60)")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Print every received message")
+    parser.add_argument("--raw", action="store_true",
+                        help="Show every received message with types")
+    parser.add_argument("--all", dest="show_all", action="store_true",
+                        help="Show all OSC addresses, not just /CF*")
     args = parser.parse_args()
 
     try:
-        rc = asyncio.run(run_check(args.port, args.duration, args.verbose))
+        rc = asyncio.run(run_check(args.port, args.duration, args.raw, args.show_all))
     except KeyboardInterrupt:
         print("\n中断しました")
         rc = 0
