@@ -89,11 +89,7 @@ class BIController:
         receiving_min = led_config.get("receiving_min_brightness", 0.0)
         receiving_max = led_config.get("receiving_max_brightness", 0.1)
 
-        # Fade to receiving_max brightness
-        logger.info(f"LED fade to receiving_max: {receiving_max:.2f}")
-        await self._led_fade(0.0, receiving_max)
-
-        # Start pulsing with RECEIVING-specific brightness range
+        # Start pulsing immediately with RECEIVING-specific brightness range
         logger.info(f"LED pulse loop starting for RECEIVING: {receiving_min:.2f} <-> {receiving_max:.2f}")
         await self._start_pulse(min_brightness=receiving_min, max_brightness=receiving_max)
 
