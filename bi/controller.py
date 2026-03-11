@@ -625,9 +625,6 @@ class BIController:
                         if i < steps:
                             await asyncio.sleep(dt_down)
 
-                # After first cycle, always continue with standard pattern
-                start_with_down = True
-
         except asyncio.CancelledError:
             logger.debug(f"LED pulse loop cancelled at brightness {self._current_led_brightness:.2f}")
             raise
