@@ -181,8 +181,8 @@
       }
     ],
     "fade_steps": 40,
-    "fade_up_duration": 6.0,
-    "fade_down_duration": 6.0,
+    "fade_up_duration": 30.0,
+    "fade_down_duration": 30.0,
     "receiving_min_brightness": 0.0,
     "receiving_max_brightness": 0.1,
     "waiting_min_brightness": 0.05,
