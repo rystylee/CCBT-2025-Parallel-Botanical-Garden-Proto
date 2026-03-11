@@ -450,6 +450,66 @@ class BIController:
 
     # ========== LED control ==========
 
+    async def start_soft_prefix_led_performance(self, fade_up_duration: float, fade_down_duration: float):
+        """Execute LED performance for soft prefix update event.
+
+        Temporarily suspends any running pulse task, performs a fade animation
+        (0.0 -> 1.0 -> 0.0), and then resumes the previous pulse task based on
+        the current phase state.
+
+        Args:
+            fade_up_duration: Duration in seconds for fade up (0.0 -> 1.0)
+            fade_down_duration: Duration in seconds for fade down (1.0 -> 0.0)
+        """
+        logger.info(f"Soft prefix LED performance starting: up={fade_up_duration}s, down={fade_down_duration}s")
+
+        # Save current state to resume later
+        suspended_state = None
+        suspended_min_brightness = None
+        suspended_max_brightness = None
+
+        # Suspend current pulse task if running
+        if self._pulse_task is not None and not self._pulse_task.done():
+            suspended_state = self.state
+
+            # Save brightness range for the suspended task
+            led_config = self.config.get("led_control", {})
+            if suspended_state == "RECEIVING":
+                suspended_min_brightness = led_config.get("receiving_min_brightness", 0.0)
+                suspended_max_brightness = led_config.get("receiving_max_brightness", 0.1)
+            elif suspended_state == "GENERATING":
+                suspended_min_brightness = led_config.get("waiting_min_brightness", 0.05)
+                suspended_max_brightness = led_config.get("waiting_max_brightness", 0.25)
+
+            logger.debug(f"Suspending pulse task in {suspended_state} phase")
+            await self._stop_pulse()
+
+        try:
+            # Perform fade up: current -> 1.0
+            await self._led_fade(self._current_led_brightness, 1.0, duration=fade_up_duration)
+
+            # Perform fade down: 1.0 -> 0.0
+            await self._led_fade(1.0, 0.0, duration=fade_down_duration)
+
+        finally:
+            # Resume the pulse task if it was running
+            if suspended_state == "RECEIVING":
+                logger.debug(f"Resuming RECEIVING pulse: {suspended_min_brightness} <-> {suspended_max_brightness}")
+                self._pulse_task = asyncio.create_task(
+                    self._led_pulse_loop(
+                        min_brightness=suspended_min_brightness, max_brightness=suspended_max_brightness
+                    )
+                )
+            elif suspended_state == "GENERATING":
+                logger.debug(f"Resuming GENERATING pulse: {suspended_min_brightness} <-> {suspended_max_brightness}")
+                self._pulse_task = asyncio.create_task(
+                    self._led_pulse_loop(
+                        min_brightness=suspended_min_brightness, max_brightness=suspended_max_brightness
+                    )
+                )
+
+            logger.info("Soft prefix LED performance complete")
+
     async def _led_fade(self, start: float, end: float, duration: float = None):
         """Fade LED from start brightness to end brightness.
 
