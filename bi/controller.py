@@ -136,8 +136,8 @@ class BIController:
                 soft_prefix_len=P,
             )
             cleaned = cleanup_ng_words(generated_text)
-            self.generated_text = cleaned.replace("\n", " ").strip()
-            self.tts_text = cleaned.strip()
+            self.generated_text = cleaned
+            self.tts_text = cleaned
             logger.info(f"Generated text: {generated_text.strip()}")
             logger.info(f"Cleaned text: {self.tts_text}")
 

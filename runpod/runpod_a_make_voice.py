@@ -128,13 +128,9 @@ def safe_basename(text: str, maxlen: int = 40) -> str:
     h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
     return f"{t}_{h}"
 
-
-def load_ng_words(config_path: str | None = None) -> dict:
-    """ngwords.json を読み込む。"""
-    candidates = []
-    if config_path:
-        candidates.append(Path(config_path))
-    candidates += [
+def load_ng_words_config() -> dict:
+    """ngwords.json を探して読み込む。"""
+    candidates = [
         Path(__file__).parent / "ngwords.json",
         Path(__file__).parent.parent / "config" / "ngwords.json",
         Path(__file__).parent / "config" / "ngwords.json",
@@ -145,31 +141,45 @@ def load_ng_words(config_path: str | None = None) -> dict:
                 return json.load(f)
     return {}
 
-
 def cleanup_ng_words(text: str) -> str:
-    """NGワードリストに基づいてテキストをクリーンアップする。"""
-    data = load_ng_words()
+    """ngwords.json に基づいてテキストをクリーンアップする。"""
+    data = load_ng_words_config()
 
-    # preamble除去
-    preamble_kw = data.get("preamble_keywords", [])
-    lines = text.splitlines()
-    cleaned_lines = []
-    past_preamble = False
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if not past_preamble and any(kw in stripped for kw in preamble_kw):
-            continue
-        past_preamble = True
-        cleaned_lines.append(stripped)
-    text = "".join(cleaned_lines)
+    text = text.replace("\\n", "\n").replace("\r", "")
 
-    # ng_words除去
-    for ng in data.get("ng_words", []):
-        text = text.replace(ng, "")
+    # drop_line_patterns
+    drop_patterns = data.get("drop_line_patterns", [])
+    if drop_patterns:
+        lines = text.splitlines()
+        kept = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if any(re.search(pat, stripped) for pat in drop_patterns):
+                continue
+            kept.append(stripped)
+        text = "".join(kept)
 
-    return text.strip()
+    # preamble_keywords
+    for kw in data.get("preamble_keywords", []):
+        if text.startswith(kw):
+            text = text[len(kw):]
+
+    # strip_prefixes
+    for pat in data.get("strip_prefixes", []):
+        text = re.sub(r"^" + pat, "", text)
+
+    # strip_symbols
+    for sym in data.get("strip_symbols", []):
+        text = text.replace(sym, "")
+
+    # strip_punctuation
+    for p in data.get("strip_punctuation", []):
+        text = text.replace(p, "")
+
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 def extract_text(payload: dict) -> str:
     text = (payload.get("text") or "").strip()
@@ -177,7 +187,6 @@ def extract_text(payload: dict) -> str:
         args = payload.get("args") or []
         text = " ".join(str(a) for a in args).strip()
 
-    # NGワードクリーンアップ
     if text:
         original = text
         text = cleanup_ng_words(text)
