@@ -477,8 +477,8 @@ class BIController:
                 suspended_min_brightness = led_config.get("receiving_min_brightness", 0.0)
                 suspended_max_brightness = led_config.get("receiving_max_brightness", 0.1)
             elif suspended_state == "GENERATING":
-                suspended_min_brightness = led_config.get("waiting_min_brightness", 0.05)
-                suspended_max_brightness = led_config.get("waiting_max_brightness", 0.25)
+                suspended_min_brightness = led_config.get("generating_min_brightness", 0.05)
+                suspended_max_brightness = led_config.get("generating_max_brightness", 0.25)
 
             logger.debug(f"Suspending pulse task in {suspended_state} phase")
             await self._stop_pulse()
@@ -564,11 +564,11 @@ class BIController:
         if not targets:
             return
 
-        # Use parameters or fall back to waiting_ config (for GENERATING phase)
+        # Use parameters or fall back to generating_ config (for GENERATING phase)
         if min_brightness is None:
-            min_brightness = led_config.get("waiting_min_brightness", 0.2)
+            min_brightness = led_config.get("generating_min_brightness", 0.2)
         if max_brightness is None:
-            max_brightness = led_config.get("waiting_max_brightness", 0.6)
+            max_brightness = led_config.get("generating_max_brightness", 0.6)
 
         waiting_min = min_brightness
         waiting_max = max_brightness

@@ -181,12 +181,12 @@
       }
     ],
     "fade_steps": 40,
-    "fade_up_duration": 30.0,
-    "fade_down_duration": 30.0,
+    "fade_up_duration": 20.0,
+    "fade_down_duration": 20.0,
     "receiving_min_brightness": 0.0,
     "receiving_max_brightness": 0.1,
-    "waiting_min_brightness": 0.05,
-    "waiting_max_brightness": 0.25,
+    "generating_min_brightness": 0.05,
+    "generating_max_brightness": 0.25,
     "soft_prefix": {
       "default_fade_up_duration": 2.0,
       "_default_fade_up_duration_note": "Soft prefix update event: default fade up duration (0.0 -> 1.0) in seconds",

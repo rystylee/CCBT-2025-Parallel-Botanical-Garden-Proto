@@ -30,9 +30,9 @@
 # 476-528行目付近
 async def _led_pulse_loop(self):
     """Continuously pulse LED between min and max brightness."""
-    # 現在はwaiting_min_brightness (0.05) と waiting_max_brightness (0.25) でハードコード
-    min_brightness = led_config.get("waiting_min_brightness", 0.2)
-    max_brightness = led_config.get("waiting_max_brightness", 0.6)
+    # 現在はgenerating_min_brightness (0.05) と generating_max_brightness (0.25) でハードコード
+    min_brightness = led_config.get("generating_min_brightness", 0.2)
+    max_brightness = led_config.get("generating_max_brightness", 0.6)
     # ... 点滅ループ処理
 ```
 
@@ -60,8 +60,8 @@ async def _receiving_phase(self):
 "led_control": {
   "enabled": true,
   "targets": [0],
-  "waiting_min_brightness": 0.05,
-  "waiting_max_brightness": 0.25,
+  "generating_min_brightness": 0.05,
+  "generating_max_brightness": 0.25,
   "fade_duration": 1.0,
   "pulse_interval": 1.5
 }
@@ -107,8 +107,8 @@ async def _receiving_phase(self):
   "targets": [0],
   "receiving_min_brightness": 0.0,      // 新規追加
   "receiving_max_brightness": 0.2,      // 新規追加
-  "waiting_min_brightness": 0.05,       // 既存（GENERATING用）
-  "waiting_max_brightness": 0.25,       // 既存（GENERATING用）
+  "generating_min_brightness": 0.05,    // 既存（GENERATING用）
+  "generating_max_brightness": 0.25,    // 既存（GENERATING用）
   "fade_duration": 1.0,
   "pulse_interval": 1.5
 }
@@ -130,8 +130,8 @@ async def _led_pulse_loop(self):
     if not targets:
         return
 
-    min_brightness = led_config.get("waiting_min_brightness", 0.2)
-    max_brightness = led_config.get("waiting_max_brightness", 0.6)
+    min_brightness = led_config.get("generating_min_brightness", 0.2)
+    max_brightness = led_config.get("generating_max_brightness", 0.6)
     # ... 以下点滅ループ
 ```
 
@@ -152,11 +152,11 @@ async def _led_pulse_loop(self, min_brightness=None, max_brightness=None):
     if not targets:
         return
 
-    # Use parameters or fall back to waiting_ config (for GENERATING phase)
+    # Use parameters or fall back to generating_ config (for GENERATING phase)
     if min_brightness is None:
-        min_brightness = led_config.get("waiting_min_brightness", 0.2)
+        min_brightness = led_config.get("generating_min_brightness", 0.2)
     if max_brightness is None:
-        max_brightness = led_config.get("waiting_max_brightness", 0.6)
+        max_brightness = led_config.get("generating_max_brightness", 0.6)
 
     # ... 以下は既存のロジックをそのまま使用
 ```
@@ -228,8 +228,8 @@ async def _generating_phase(self):
     # Start LED pulsing
     led_config = self.config.get("led_control", {})
     if led_config.get("enabled", False):
-        waiting_max = led_config.get("waiting_max_brightness", 0.6)
-        await self._led_fade(0.0, waiting_max)  # ← RECEIVINGからの場合は0.0からではなく現在値から
+        generating_max = led_config.get("generating_max_brightness", 0.6)
+        await self._led_fade(0.0, generating_max)  # ← RECEIVINGからの場合は0.0からではなく現在値から
         self._pulse_task = asyncio.create_task(self._led_pulse_loop())  # ← デフォルトパラメータを使用
 ```
 
