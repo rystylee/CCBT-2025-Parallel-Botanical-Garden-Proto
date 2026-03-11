@@ -9,7 +9,7 @@ echo "=== Argostranslate language pack installer ==="
 echo ""
 
 # Python executable (uv run or direct)
-PY="${PYTHON:-uv run python}"
+PY="${PYTHON:-/root/.local/bin/uv run python}"
 
 $PY -c "
 import argostranslate.package
