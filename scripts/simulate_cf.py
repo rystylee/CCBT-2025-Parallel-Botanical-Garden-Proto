@@ -5,15 +5,18 @@ CF デバイスシミュレーター (テスト用送信)
 実機 (10.0.0.211/212) が無い環境でも受信チェックできるように、
 CFデバイスと同じ OSC メッセージを送信する。
 
+CF00/CF01 (plant_sensor_config.json 準拠) と
+CF1/CF2 (高山先生仕様) の両方に対応。
+
 使い方:
-  # ローカルテスト (自分自身に送信)
+  # ローカルテスト (自分自身に送信、CF00)
   uv run python scripts/simulate_cf.py
+
+  # CF1 名義で送信
+  uv run python scripts/simulate_cf.py --cf-id CF1
 
   # 送信先・ポート指定
   uv run python scripts/simulate_cf.py --target 10.0.0.200 --port 8000
-
-  # CF2 だけシミュレート
-  uv run python scripts/simulate_cf.py --cf-id CF2
 
 別ターミナルで check_cf.py を動かして確認:
   uv run python scripts/check_cf.py --port 8000
@@ -21,7 +24,6 @@ CFデバイスと同じ OSC メッセージを送信する。
 import argparse
 import math
 import time
-import sys
 
 from pythonosc import udp_client
 
@@ -33,7 +35,7 @@ def simulate(target: str, port: int, cf_id: str, interval: float, cycles: int):
     print(f"Sending {cycles} cycles... (Ctrl+C to stop)")
     print()
 
-    update_every = 10  # N回に1回 "updated" にする (≒計測周期シミュレーション)
+    update_every = 10  # N回に1回 "updated" にする (≒3分計測周期シミュレーション)
 
     for i in range(cycles):
         # サイン波で PFI change をシミュレート (-1.0 ~ 1.0)
@@ -72,9 +74,8 @@ def main():
                         help="Target IP (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000,
                         help="Target OSC port (default: 8000)")
-    parser.add_argument("--cf-id", type=str, default="CF1",
-                        choices=["CF1", "CF2"],
-                        help="CF device ID (default: CF1)")
+    parser.add_argument("--cf-id", type=str, default="CF00",
+                        help="CF device ID: CF00,CF01 (config) or CF1,CF2 (spec) (default: CF00)")
     parser.add_argument("--interval", type=float, default=1.0,
                         help="Send interval in seconds (default: 1.0)")
     parser.add_argument("--cycles", type=int, default=60,
