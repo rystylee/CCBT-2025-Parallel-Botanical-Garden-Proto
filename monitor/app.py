@@ -1460,6 +1460,21 @@ def make_broadcast_html():
   <div class="bc-sec cmd-area">
     <div class="bc-sec-t">COMMAND</div>
     <textarea id="bcCmd" placeholder="Enter shell command...&#10;e.g. uname -a&#10;e.g. pip install loguru"></textarea>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:6px;font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--dim);">
+      <label style="display:flex;align-items:center;gap:4px;">TIMEOUT
+        <select id="bcTimeout" style="background:#0a0a0f;border:1px solid var(--border);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.62rem;padding:2px 4px;">
+          <option value="15">15s</option>
+          <option value="30" selected>30s</option>
+          <option value="60">60s</option>
+          <option value="120">2m</option>
+          <option value="300">5m</option>
+          <option value="600">10m</option>
+        </select>
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="nohupでバックグラウンド実行。SSHが切れても安全">
+        <input type="checkbox" id="bcAsync" style="accent-color:var(--accent);"> ASYNC
+      </label>
+    </div>
     <div class="cmd-btns">
       <button class="bcbtn" id="btnExec" onclick="doExec()">EXECUTE</button>
       <button class="bcbtn bcbtn-save" onclick="doSave()">SAVE</button>
@@ -1522,14 +1537,16 @@ function doExec() {{
     if(!ids.length) return;
     sv = ids.join(',');
   }}
-  socket.emit('broadcast_command', {{command:cmd, scope, scope_value:sv}});
+  const timeout = parseInt(document.getElementById('bcTimeout').value) || 30;
+  const async_mode = document.getElementById('bcAsync').checked;
+  socket.emit('broadcast_command', {{command:cmd, scope, scope_value:sv, timeout, async_mode}});
 }}
 
 socket.on('broadcast_start', d => {{
   running=true; rcvd=0; total=d.total;
   document.getElementById('btnExec').disabled=true;
   document.getElementById('bcBody').innerHTML='';
-  document.getElementById('bcProg').textContent='0 / '+total;
+  document.getElementById('bcProg').textContent='0 / '+total+' ['+( d.mode || '')+']';
 }});
 
 socket.on('broadcast_result', d => {{
@@ -1655,6 +1672,8 @@ def handle_broadcast(data):
     command = data.get("command", "").strip()
     scope = data.get("scope", "node")
     scope_value = data.get("scope_value", "")
+    cmd_timeout = min(max(int(data.get("timeout", 30)), 5), 600)
+    async_mode = bool(data.get("async_mode", False))
     sid = request.sid
     if not command:
         emit("broadcast_error", {"message": "Empty command"}); return
@@ -1672,17 +1691,28 @@ def handle_broadcast(data):
 
     if not targets:
         emit("broadcast_error", {"message": "No targets"}); return
-    emit("broadcast_start", {"total": len(targets), "command": command, "scope": scope})
+    mode_label = f"async/nohup" if async_mode else f"timeout={cmd_timeout}s"
+    emit("broadcast_start", {"total": len(targets), "command": command, "scope": scope,
+                             "mode": mode_label})
 
-    def _run_one(num):
+    def _run_one_sync(num):
+        """通常モード: SSH接続を維持して結果を待つ"""
         start = time.time()
         try:
-            code, out, err = ssh_run(node_ip(num), command, timeout=30)
+            code, out, err = ssh_run(node_ip(num), command, timeout=cmd_timeout)
             elapsed = round(time.time() - start, 2)
             socketio.emit("broadcast_result", {
                 "device_id": num, "host": node_ip(num),
                 "exit_code": code, "stdout": out[-4096:], "stderr": err[-2048:],
                 "success": code == 0, "elapsed": elapsed,
+            }, to=sid)
+        except subprocess.TimeoutExpired:
+            elapsed = round(time.time() - start, 2)
+            socketio.emit("broadcast_result", {
+                "device_id": num, "host": node_ip(num),
+                "exit_code": -1, "stdout": "",
+                "stderr": f"SSH timeout after {cmd_timeout}s (remote process may still be running)",
+                "success": False, "elapsed": elapsed,
             }, to=sid)
         except Exception as e:
             elapsed = round(time.time() - start, 2)
@@ -1691,6 +1721,76 @@ def handle_broadcast(data):
                 "exit_code": -1, "stdout": "", "stderr": str(e)[:512],
                 "success": False, "elapsed": elapsed,
             }, to=sid)
+
+    def _run_one_async(num):
+        """非同期モード: nohupでバックグラウンド実行→ポーリングで結果取得"""
+        start = time.time()
+        log_file = f"/tmp/bi_bc_{num}_{int(start)}.log"
+        done_file = f"{log_file}.done"
+        # nohup wrap: 終了時に done マーカーファイルを作成
+        wrapped = (
+            f"nohup sh -c '( {command} ) > {log_file} 2>&1; "
+            f"echo $? > {done_file}' >/dev/null 2>&1 &"
+        )
+        try:
+            # 起動（即座に返る）
+            ssh_run(node_ip(num), wrapped, timeout=10)
+        except Exception as e:
+            elapsed = round(time.time() - start, 2)
+            socketio.emit("broadcast_result", {
+                "device_id": num, "host": node_ip(num),
+                "exit_code": -1, "stdout": "",
+                "stderr": f"Failed to launch async: {str(e)[:256]}",
+                "success": False, "elapsed": elapsed,
+            }, to=sid)
+            return
+
+        # ポーリング: done_file が出現するまで待つ (最大 cmd_timeout 秒)
+        poll_interval = 3
+        deadline = start + cmd_timeout
+        while time.time() < deadline:
+            time.sleep(poll_interval)
+            try:
+                code, out, _ = ssh_run(node_ip(num),
+                    f"test -f {done_file} && echo DONE || echo WAIT", timeout=8)
+                if "DONE" in out:
+                    # 結果を回収
+                    _, exit_str, _ = ssh_run(node_ip(num), f"cat {done_file}", timeout=8)
+                    _, log_out, _ = ssh_run(node_ip(num),
+                        f"tail -c 4096 {log_file}", timeout=8)
+                    exit_code = int(exit_str.strip()) if exit_str.strip().isdigit() else -1
+                    elapsed = round(time.time() - start, 2)
+                    socketio.emit("broadcast_result", {
+                        "device_id": num, "host": node_ip(num),
+                        "exit_code": exit_code, "stdout": log_out[-4096:],
+                        "stderr": "",
+                        "success": exit_code == 0, "elapsed": elapsed,
+                    }, to=sid)
+                    # cleanup
+                    ssh_run(node_ip(num),
+                        f"rm -f {log_file} {done_file}", timeout=5)
+                    return
+            except Exception:
+                pass  # ポーリング失敗は無視して継続
+
+        # タイムアウト → 途中経過を取得
+        elapsed = round(time.time() - start, 2)
+        partial = ""
+        try:
+            _, partial, _ = ssh_run(node_ip(num),
+                f"tail -c 2048 {log_file} 2>/dev/null || echo '(no output yet)'",
+                timeout=8)
+        except Exception:
+            pass
+        socketio.emit("broadcast_result", {
+            "device_id": num, "host": node_ip(num),
+            "exit_code": -1,
+            "stdout": partial[-4096:] if partial else "",
+            "stderr": f"Async poll timeout after {cmd_timeout}s (process may still be running on device)",
+            "success": False, "elapsed": elapsed,
+        }, to=sid)
+
+    _run_one = _run_one_async if async_mode else _run_one_sync
 
     def _run_all():
         results = []
@@ -1703,8 +1803,9 @@ def handle_broadcast(data):
         for n in targets:
             t = threading.Thread(target=_tracked_run, args=(n,), daemon=True)
             t.start(); threads.append(t)
+        join_timeout = cmd_timeout + 15
         for t in threads:
-            t.join(timeout=35)
+            t.join(timeout=join_timeout)
         socketio.emit("broadcast_done", {
             "total": len(targets), "success": len(results), "failed": len(targets) - len(results),
         }, to=sid)
