@@ -2,18 +2,17 @@
   "_desc": "=== RunPod リモート処理 共通設定 ===",
 
   "ssh": {
-    "user": "dmw81eq7mnro4b-644113b7",
-    "host": "ssh.runpod.io",
-    "port": 22,
-    "key": "~/.ssh/id_ed25519",
-    "connect_timeout": 10,
-    "options": [
-      "-o", "StrictHostKeyChecking=accept-new",
-      "-o", "ServerAliveInterval=30",
-      "-o", "ServerAliveCountMax=3"
-    ]
+      "user": "root",
+      "host": "69.30.85.9",
+      "port": 22039,
+      "key": "~/.ssh/id_ed25519",
+      "connect_timeout": 10,
+      "options": [
+          "-o", "StrictHostKeyChecking=accept-new",
+          "-o", "ServerAliveInterval=30",
+          "-o", "ServerAliveCountMax=3"
+      ]
   },
-
   "runpod": {
     "_desc": "RunPod上のパス構成",
     "workspace": "/workspace",
