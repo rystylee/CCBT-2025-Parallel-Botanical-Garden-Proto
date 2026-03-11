@@ -28,6 +28,7 @@ class BIController:
         # LED state tracking
         self._current_led_brightness = 0.0
         self._pulse_task: Optional[asyncio.Task] = None
+        self._led_lock = asyncio.Lock()  # Prevents concurrent LED control
 
         # Waiting audio loop
         self._waiting_proc: Optional[subprocess.Popen] = None
@@ -94,9 +95,7 @@ class BIController:
 
         # Start pulsing with RECEIVING-specific brightness range
         logger.info(f"LED pulse loop starting for RECEIVING: {receiving_min:.2f} <-> {receiving_max:.2f}")
-        self._pulse_task = asyncio.create_task(
-            self._led_pulse_loop(min_brightness=receiving_min, max_brightness=receiving_max)
-        )
+        await self._start_pulse(min_brightness=receiving_min, max_brightness=receiving_max)
 
         # Start waiting audio loop
         await self._start_waiting_loop()
@@ -125,7 +124,7 @@ class BIController:
 
         # Fade in from 0 to waiting_max, then start pulsing
         await self._led_fade(0.0, waiting_max)
-        self._pulse_task = asyncio.create_task(self._led_pulse_loop())
+        await self._start_pulse()
 
         # Concatenate inputs in chronological order
         concatenated_text = self._concatenate_inputs()
@@ -493,19 +492,10 @@ class BIController:
 
         finally:
             # Resume the pulse task if it was running
-            if suspended_state == "RECEIVING":
-                logger.debug(f"Resuming RECEIVING pulse: {suspended_min_brightness} <-> {suspended_max_brightness}")
-                self._pulse_task = asyncio.create_task(
-                    self._led_pulse_loop(
-                        min_brightness=suspended_min_brightness, max_brightness=suspended_max_brightness
-                    )
-                )
-            elif suspended_state == "GENERATING":
-                logger.debug(f"Resuming GENERATING pulse: {suspended_min_brightness} <-> {suspended_max_brightness}")
-                self._pulse_task = asyncio.create_task(
-                    self._led_pulse_loop(
-                        min_brightness=suspended_min_brightness, max_brightness=suspended_max_brightness
-                    )
+            if suspended_state in ["RECEIVING", "GENERATING"]:
+                logger.debug(f"Resuming {suspended_state} pulse: {suspended_min_brightness} <-> {suspended_max_brightness}")
+                await self._start_pulse(
+                    min_brightness=suspended_min_brightness, max_brightness=suspended_max_brightness
                 )
 
             logger.info("Soft prefix LED performance complete")
@@ -536,7 +526,7 @@ class BIController:
         full_range = abs(end - start)
         if full_range < 0.001:
             # Already at target, just send final value
-            self._send_led(targets, end)
+            await self._send_led(targets, end)
             self._current_led_brightness = end
             return
 
@@ -547,7 +537,7 @@ class BIController:
 
         for i in range(steps + 1):
             value = start + (end - start) * (i / steps)
-            self._send_led(targets, value)
+            await self._send_led(targets, value)
             self._current_led_brightness = value
             if i < steps:
                 await asyncio.sleep(dt)
@@ -601,7 +591,7 @@ class BIController:
                 # Fade down: waiting_max -> waiting_min
                 for i in range(steps + 1):
                     value = waiting_max - (waiting_max - waiting_min) * (i / steps)
-                    self._send_led(targets, value)
+                    await self._send_led(targets, value)
                     self._current_led_brightness = value
                     if i < steps:
                         await asyncio.sleep(dt_down)
@@ -609,7 +599,7 @@ class BIController:
                 # Fade up: waiting_min -> waiting_max
                 for i in range(steps + 1):
                     value = waiting_min + (waiting_max - waiting_min) * (i / steps)
-                    self._send_led(targets, value)
+                    await self._send_led(targets, value)
                     self._current_led_brightness = value
                     if i < steps:
                         await asyncio.sleep(dt_up)
@@ -618,23 +608,43 @@ class BIController:
             logger.debug(f"LED pulse loop cancelled at brightness {self._current_led_brightness:.2f}")
             raise
 
+    async def _start_pulse(self, min_brightness=None, max_brightness=None):
+        """Start pulse loop, ensuring previous one is stopped first.
+
+        This helper prevents task leaks by guaranteeing that any existing
+        pulse task is cancelled before starting a new one.
+
+        Args:
+            min_brightness: Minimum brightness (0.0-1.0). If None, uses waiting_min_brightness from config.
+            max_brightness: Maximum brightness (0.0-1.0). If None, uses waiting_max_brightness from config.
+        """
+        await self._stop_pulse()  # Ensure old task is stopped
+        self._pulse_task = asyncio.create_task(
+            self._led_pulse_loop(min_brightness=min_brightness, max_brightness=max_brightness)
+        )
+
     async def _stop_pulse(self):
         """Cancel the pulse task if running and wait for clean shutdown."""
         if self._pulse_task is not None and not self._pulse_task.done():
+            logger.debug(f"Stopping pulse task: {id(self._pulse_task)}")
             self._pulse_task.cancel()
             try:
                 await self._pulse_task
             except asyncio.CancelledError:
                 pass
-        self._pulse_task = None
+            finally:
+                self._pulse_task = None
+        else:
+            self._pulse_task = None
 
-    def _send_led(self, targets: list, value: float):
-        """Send LED brightness to all configured targets."""
-        for target in targets:
-            try:
-                self.osc_client.send_to_target(target, "/led", value)
-            except Exception as e:
-                logger.error(f"Failed to send LED value to {target}: {e}")
+    async def _send_led(self, targets: list, value: float):
+        """Send LED brightness to all configured targets with exclusive lock."""
+        async with self._led_lock:
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led", value)
+                except Exception as e:
+                    logger.error(f"Failed to send LED value to {target}: {e}")
 
     # ========== Status ==========
 
