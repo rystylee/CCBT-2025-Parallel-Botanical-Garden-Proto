@@ -12,6 +12,7 @@ from api.tts import StackFlowTTSClient
 
 from .models import BIInputData
 from .utils import P, override_soft_prefix_val
+from api.utils import cleanup_ng_words
 
 
 class BIController:
@@ -134,9 +135,11 @@ class BIController:
                 soft_prefix_b64=sp_b64,
                 soft_prefix_len=P,
             )
-            self.generated_text = generated_text.replace("\n", " ").strip()
-            self.tts_text = generated_text.strip()
+            cleaned = cleanup_ng_words(generated_text)
+            self.generated_text = cleaned.replace("\n", " ").strip()
+            self.tts_text = cleaned.strip()
             logger.info(f"Generated text: {generated_text.strip()}")
+            logger.info(f"Cleaned text: {self.tts_text}")
 
             # Keep pulse running — it will continue during WAV preparation in OUTPUT phase
             self.state = "OUTPUT"

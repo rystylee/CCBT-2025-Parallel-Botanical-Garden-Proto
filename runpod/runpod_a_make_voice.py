@@ -129,13 +129,62 @@ def safe_basename(text: str, maxlen: int = 40) -> str:
     return f"{t}_{h}"
 
 
+def load_ng_words(config_path: str | None = None) -> dict:
+    """ngwords.json を読み込む。"""
+    candidates = []
+    if config_path:
+        candidates.append(Path(config_path))
+    candidates += [
+        Path(__file__).parent / "ngwords.json",
+        Path(__file__).parent.parent / "config" / "ngwords.json",
+        Path(__file__).parent / "config" / "ngwords.json",
+    ]
+    for p in candidates:
+        if p.exists():
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+    return {}
+
+
+def cleanup_ng_words(text: str) -> str:
+    """NGワードリストに基づいてテキストをクリーンアップする。"""
+    data = load_ng_words()
+
+    # preamble除去
+    preamble_kw = data.get("preamble_keywords", [])
+    lines = text.splitlines()
+    cleaned_lines = []
+    past_preamble = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not past_preamble and any(kw in stripped for kw in preamble_kw):
+            continue
+        past_preamble = True
+        cleaned_lines.append(stripped)
+    text = "".join(cleaned_lines)
+
+    # ng_words除去
+    for ng in data.get("ng_words", []):
+        text = text.replace(ng, "")
+
+    return text.strip()
+
 def extract_text(payload: dict) -> str:
     text = (payload.get("text") or "").strip()
     if not text:
         args = payload.get("args") or []
         text = " ".join(str(a) for a in args).strip()
-    return text
 
+    # NGワードクリーンアップ
+    if text:
+        original = text
+        text = cleanup_ng_words(text)
+        if text != original:
+            log(f"NGワード除去: '{original[:60]}' → '{text[:60]}'")
+
+    return text
 
 # ===== パイプライン =====
 
