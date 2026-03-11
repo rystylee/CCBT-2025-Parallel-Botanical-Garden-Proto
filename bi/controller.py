@@ -524,17 +524,18 @@ class BIController:
             else:
                 duration = led_config.get("fade_down_duration", 2.0)
 
-        # Check if already at target
-        if abs(end - start) < 0.001:
+        # Scale duration proportionally to the brightness range being covered
+        full_range = abs(end - start)
+        if full_range < 0.001:
             # Already at target, just send final value
             await self._send_led(targets, end)
             self._current_led_brightness = end
             return
 
-        # Use duration directly without scaling
-        dt = duration / steps
+        scaled_duration = duration * full_range
+        dt = scaled_duration / steps
 
-        logger.info(f"LED fade: {start:.2f} -> {end:.2f} ({duration:.2f}s, {steps} steps)")
+        logger.info(f"LED fade: {start:.2f} -> {end:.2f} ({scaled_duration:.2f}s, {steps} steps)")
 
         for i in range(steps + 1):
             value = start + (end - start) * (i / steps)
@@ -548,8 +549,8 @@ class BIController:
     async def _led_pulse_loop(self, min_brightness=None, max_brightness=None):
         """Continuously pulse LED between min and max brightness.
 
-        Runs until cancelled. Uses fade_steps / fade_up_duration / fade_down_duration
-        from config directly without brightness range scaling.
+        Runs until cancelled. Uses the same fade_steps / fade_up_duration /
+        fade_down_duration as normal fades, scaled to the brightness range.
 
         Args:
             min_brightness: Minimum brightness (0.0-1.0). If None, uses waiting_min_brightness from config.
@@ -575,13 +576,16 @@ class BIController:
         fade_up_duration = led_config.get("fade_up_duration", 2.0)
         fade_down_duration = led_config.get("fade_down_duration", 2.0)
 
-        # Use durations directly without scaling
-        dt_up = fade_up_duration / steps
-        dt_down = fade_down_duration / steps
+        # Scale durations proportionally to the waiting brightness range
+        brightness_range = waiting_max - waiting_min
+        up_duration = fade_up_duration * brightness_range
+        down_duration = fade_down_duration * brightness_range
+        dt_up = up_duration / steps
+        dt_down = down_duration / steps
 
         logger.info(
             f"LED pulse loop started: {waiting_min:.2f} <-> {waiting_max:.2f} "
-            f"(up {fade_up_duration:.2f}s, down {fade_down_duration:.2f}s)"
+            f"(up {up_duration:.2f}s, down {down_duration:.2f}s)"
         )
 
         try:
