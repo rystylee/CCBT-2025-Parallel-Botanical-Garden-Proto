@@ -168,6 +168,59 @@ class BIController:
             self.state = "RESTING"
             return
 
+        # Determine playback method based on language
+        lang = self.config.get("common", {}).get("lang", "ja")
+        logger.info(f"Output phase for language: {lang}")
+
+        if lang == "ja":
+            # Japanese devices: Use TTS pipeline (WAV generation + effects)
+            await self._output_phase_tts()
+        else:
+            # Non-Japanese devices: Use prerecorded audio
+            await self._output_phase_prerecorded(lang)
+
+        # Send generated text to target devices
+        targets = self.config.get("targets", [])
+
+        lowest_relay_count = min(data.relay_count for data in self.input_buffer)
+        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64
+        logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
+
+        try:
+            self.osc_client.send_to_all_targets(
+                targets, "/bi/input", self.generated_text, soft_prefix_b64, lowest_relay_count
+            )
+        except Exception as e:
+            logger.error(f"Error sending to targets: {e}")
+
+        # Send generated text to Mixer PC
+        mixer_config = self.config.get("mixer")
+        if mixer_config:
+            try:
+                mixer_target = {
+                    "host": mixer_config.get("host"),
+                    "port": mixer_config.get("port"),
+                }
+                self.osc_client.send_to_target(mixer_target, "/mixer", self.generated_text)
+                logger.info(f"Sent to Mixer PC: {self.generated_text}")
+            except Exception as e:
+                logger.error(f"Error sending to Mixer PC: {e}")
+
+        # Clear buffer
+        self.input_buffer.clear()
+        self.state = "RESTING"
+
+    async def _resting_phase(self):
+        """Phase 4: Rest period"""
+        logger.info("RESTING phase started")
+        rest_duration = self.config.get("cycle", {}).get("rest_duration", 1.0)
+        await asyncio.sleep(rest_duration)
+        self.state = "RECEIVING"
+
+    # ========== Output phase implementations ==========
+
+    async def _output_phase_tts(self):
+        """Output phase for Japanese devices: TTS generation with effects"""
         # Step 1: Prepare WAV file while LED keeps pulsing
         logger.info("Preparing WAV file (LED pulsing continues)...")
         wav_path = await asyncio.to_thread(self.tts_client.prepare_wav_sync, self.tts_text)
@@ -207,43 +260,85 @@ class BIController:
             await self._stop_waiting_loop()
             await self._led_fade(self._current_led_brightness, 0.0)
 
-        # Send generated text to target devices
-        targets = self.config.get("targets", [])
+    async def _output_phase_prerecorded(self, lang: str):
+        """Output phase for non-Japanese devices: Prerecorded audio playback
 
-        lowest_relay_count = min(data.relay_count for data in self.input_buffer)
-        soft_prefix_b64 = self.input_buffer[-1].soft_prefix_b64
-        logger.debug(f"Using lowest relay_count from buffer: {lowest_relay_count}")
+        Args:
+            lang: Language code (en, fr, fa, ar, etc.)
+        """
+        # Step 1: Get prerecorded audio file path
+        audio_path = self._get_prerecorded_audio_path(lang)
 
-        try:
-            self.osc_client.send_to_all_targets(
-                targets, "/bi/input", self.generated_text, soft_prefix_b64, lowest_relay_count
-            )
-        except Exception as e:
-            logger.error(f"Error sending to targets: {e}")
+        # Step 2: Stop LED pulsing
+        await self._stop_pulse()
 
-        # Send generated text to Mixer PC
-        mixer_config = self.config.get("mixer")
-        if mixer_config:
+        # Step 3: Check if file exists
+        if audio_path and os.path.exists(audio_path):
+            logger.info(f"Playing prerecorded audio: {audio_path}")
+
+            # Step 4: Start prerecorded audio playback (non-blocking)
+            playback_proc = await asyncio.to_thread(self.tts_client.start_playback, audio_path)
+
+            # Step 5: Stop waiting audio (brief crossfade overlap via dmix)
+            await self._stop_waiting_loop()
+
+            # Step 6: Fade up LED concurrently with playback
+            await self._led_fade(self._current_led_brightness, 1.0, phase="output")
+
+            # Step 7: Wait for playback to finish
             try:
-                mixer_target = {
-                    "host": mixer_config.get("host"),
-                    "port": mixer_config.get("port"),
-                }
-                self.osc_client.send_to_target(mixer_target, "/mixer", self.generated_text)
-                logger.info(f"Sent to Mixer PC: {self.generated_text}")
+                ret = await asyncio.to_thread(playback_proc.wait)
+                if ret != 0:
+                    stderr = (
+                        playback_proc.stderr.read().decode(errors="replace").strip() if playback_proc.stderr else ""
+                    )
+                    logger.error(f"Prerecorded audio playback failed (rc={ret}): {stderr}")
             except Exception as e:
-                logger.error(f"Error sending to Mixer PC: {e}")
+                logger.error(f"Error in prerecorded audio playback: {e}")
 
-        # Clear buffer
-        self.input_buffer.clear()
-        self.state = "RESTING"
+            # Step 8: Fade down after playback
+            await self._led_fade(1.0, 0.0, phase="output")
+        else:
+            logger.warning(f"Prerecorded audio file not found for lang={lang}: {audio_path}")
+            logger.warning("Skipping audio playback, continuing with OSC transmission")
+            await self._stop_waiting_loop()
+            await self._led_fade(self._current_led_brightness, 0.0)
 
-    async def _resting_phase(self):
-        """Phase 4: Rest period"""
-        logger.info("RESTING phase started")
-        rest_duration = self.config.get("cycle", {}).get("rest_duration", 1.0)
-        await asyncio.sleep(rest_duration)
-        self.state = "RECEIVING"
+    # ========== Prerecorded audio ==========
+
+    def _get_prerecorded_audio_path(self, lang: str) -> Optional[str]:
+        """Get prerecorded audio file path for the specified language.
+
+        Args:
+            lang: Language code (en, fr, fa, ar, etc.)
+
+        Returns:
+            Absolute path to the audio file, or None if not configured/found
+        """
+        audio_config = self.config.get("audio", {})
+        prerecorded_config = audio_config.get("prerecorded_audio", {})
+
+        if not prerecorded_config.get("enabled", False):
+            logger.debug("Prerecorded audio is disabled in config")
+            return None
+
+        # Get configured filename for this language
+        files = prerecorded_config.get("files", {})
+        filename = files.get(lang)
+
+        if not filename:
+            logger.warning(f"No prerecorded audio filename configured for lang={lang}")
+            return None
+
+        # Construct absolute path
+        audio_dir = prerecorded_config.get("dir", "audio/prerecorded")
+        if not os.path.isabs(audio_dir):
+            # Make relative path absolute from project root
+            audio_dir = os.path.join(os.getcwd(), audio_dir)
+
+        audio_path = os.path.join(audio_dir, filename)
+
+        return audio_path
 
     # ========== Input handling ==========
 

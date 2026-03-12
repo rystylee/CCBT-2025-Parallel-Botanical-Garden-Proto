@@ -175,6 +175,21 @@
         "max": 5
       },
       "_elongation_length_note": "伸ばす長さの範囲(文字数)。min2-max5=「あ」→「ああ」~「あああああ」"
+    },
+
+    "_desc_prerecorded": "--- 事前録音音声 --- 日本語以外のデバイスで再生する固定音声ファイル",
+    "prerecorded_audio": {
+      "enabled": true,
+      "_enabled_note": "事前録音音声の有効/無効",
+      "dir": "audio/prerecorded",
+      "_dir_note": "事前録音音声ファイルを配置するディレクトリ",
+      "files": {
+        "en": "output_en.wav",
+        "fr": "output_fr.wav",
+        "fa": "output_fa.wav",
+        "ar": "output_ar.wav"
+      },
+      "_files_note": "言語コードごとのファイル名。日本語(ja)は不要(TTSを使用)"
     }
   },
   "led_control": {
