@@ -4,7 +4,7 @@
   },
   "cycle": {
     "receive_duration": 3.0,
-    "rest_duration": 1.0,
+    "rest_duration": 0.0,
     "max_relay_count": 12
   },
   "osc": {
