@@ -22,7 +22,7 @@
     "_max_tokens_note": "LLMが1回の推論で生成する最大トークン数。64=短文(1-2行)、96=中程度、128=長め。小さすぎると何も出ない場合あり",
     "soft_prefix_vals": [0.08],
     "_soft_prefix_vals_note": "LLMのsoft prefix値の候補リスト。ランダムに1つ選ばれる。値が大きいほど生成に揺らぎが出る。通常トークン1個分≈0.03-0.08、現在の10は極めて強い",
-    "max_output_chars": {"ja": 20, "zh": 20, "en": 50, "fr": 50, "fa": 40, "ar": 40},
+    "max_output_chars": {"ja": 50, "zh": 50, "en": 120, "fr": 120, "fa": 100, "ar": 100},
     "_max_output_chars_note": "生成テキストの最大文字数(言語別)。超過時は自然な切れ目で切断。ja10文字≈「今日も森が静かに」程度"
   },
   "stack_flow_tts": {},
