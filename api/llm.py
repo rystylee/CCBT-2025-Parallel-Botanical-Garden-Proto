@@ -75,7 +75,7 @@ class StackFlowLLMClient:
 
         return output
 
-def _inference_sync(self, send_data: dict) -> str:
+    def _inference_sync(self, send_data: dict) -> str:
         """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
         # Drain stale data left from any previous failed inference
         self._drain_socket()
