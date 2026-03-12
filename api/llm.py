@@ -75,27 +75,35 @@ class StackFlowLLMClient:
 
         return output
 
-    def _inference_sync(self, send_data: dict) -> str:
+def _inference_sync(self, send_data: dict) -> str:
         """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
+        # Drain stale data left from any previous failed inference
+        self._drain_socket()
+
         send_json(self.sock, send_data)
 
         output = ""
         buf = ""
         while True:
-            # Read from socket into buffer
             part = self.sock.recv(4096).decode("utf-8")
             if not part:
                 break
-            buf += part
+            # Kill ALL newlines upfront — they only cause trouble
+            buf += part.replace("\n", "").replace("\r", "")
 
-            # Process all complete lines in buffer
-            while "\n" in buf:
-                line, buf = buf.split("\n", 1)
-                line = line.strip()
-                if not line:
+            # Extract complete JSON objects by brace depth
+            while buf:
+                obj_str, remaining = self._extract_json_object(buf)
+                if obj_str is None:
+                    break
+                buf = remaining
+
+                try:
+                    response_data = json.loads(obj_str)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"JSON parse skip: {e}")
                     continue
 
-                response_data = json.loads(line)
                 data = self._parse_inference_response(response_data)
                 if data is None:
                     return output
@@ -109,6 +117,58 @@ class StackFlowLLMClient:
                     return output
 
         return output
+
+    def _drain_socket(self):
+        """Clear any stale data from socket buffer before new inference."""
+        import socket as _socket
+        self.sock.setblocking(False)
+        drained = 0
+        try:
+            while True:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    break
+                drained += len(chunk)
+        except (BlockingIOError, _socket.error):
+            pass
+        finally:
+            self.sock.setblocking(True)
+        if drained:
+            logger.warning(f"Drained {drained} stale bytes from socket")
+
+    @staticmethod
+    def _extract_json_object(buf: str):
+        """Extract one complete JSON object from buf using brace depth."""
+        start = buf.find("{")
+        if start == -1:
+            return None, buf
+
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start, len(buf)):
+            c = buf[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if c == "\\":
+                if in_string:
+                    escape_next = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return buf[start:i + 1], buf[i + 1:]
+
+        return None, buf
 
     @staticmethod
     def _decode_soft_prefix_val(b64: str) -> float:
