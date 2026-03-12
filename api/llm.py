@@ -76,27 +76,37 @@ class StackFlowLLMClient:
         return output
 
     def _inference_sync(self, send_data: dict) -> str:
-        """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
-        send_json(self.sock, send_data)
+            """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
+            send_json(self.sock, send_data)
 
-        output = ""
-        while True:
-            response = receive_response(self.sock)
-            response_data = json.loads(response)
+            output = ""
+            buf = ""
+            while True:
+                part = self.sock.recv(4096).decode("utf-8")
+                if not part:
+                    break
+                buf += part
 
-            data = self._parse_inference_response(response_data)
-            if data is None:
-                break
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
 
-            delta = data.get("delta")
-            finish = data.get("finish")
-            output += delta
-            logger.debug(delta)
+                    response_data = json.loads(line)
+                    data = self._parse_inference_response(response_data)
+                    if data is None:
+                        return output
 
-            if finish:
-                break
+                    delta = data.get("delta")
+                    finish = data.get("finish")
+                    output += delta
+                    logger.debug(delta)
 
-        return output
+                    if finish:
+                        return output
+
+            return output
 
     @staticmethod
     def _decode_soft_prefix_val(b64: str) -> float:
