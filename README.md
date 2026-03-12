@@ -19,8 +19,13 @@ M5Stack LLM Compute Kit上で動作する分散型Botanical Intelligence (BI)シ
 - **分散型サイクルシステム**: 独立した4段階のサイクル（受信→生成→出力→休息）
 - **協調的テキスト生成**: 複数デバイス間でのテキストリレー
 - **オンデバイスLLM推論**: クラウド不要のローカルAI処理（2~3トークン生成）
-- **タイムスタンプ管理**: データの鮮度管理と時系列順処理
+- **伝達回数管理**: `relay_count`による循環制御と寿命管理
 - **柔軟な入力受付**: 全てのデバイスが人間とBIの両方の入力を受け付け可能
+- **音響エフェクト処理**: Jóhann Jóhannsson風「Accumulating Ghosts」パイプライン
+- **LED制御**: PCA9685経由のフェードアニメーション
+- **植物センサー統合**: クロロフィル蛍光（CF）×Acoustic Emission（AE）によるSoft Prefix制御
+- **デバイスID自動検出**: `/etc/ccbt-device-id`または`/etc/network/interfaces`から自動取得
+- **言語自動検出**: デバイスIDの末尾数字から6言語（ja/en/fr/fa/ar/zh）を自動決定
 
 ### 動作環境
 
@@ -69,33 +74,56 @@ M5Stack LLM Compute Kit上で動作する分散型Botanical Intelligence (BI)シ
 
 ```
 CCBT-2025-Parallel-Botanical-Garden-Proto/
-├── main.py                 # エントリーポイント
-├── app/                    # アプリケーション層
+├── main.py                        # エントリーポイント
+├── pca9685_osc_led_server.py      # PCA9685 LED制御サーバー
+├── app/                           # アプリケーション層
 │   ├── __init__.py
-│   └── controller.py       # AppController - OSCサーバー管理
-├── bi/                     # BI関連モジュール
+│   └── controller.py              # AppController - OSCサーバー管理
+├── bi/                            # BI関連モジュール
 │   ├── __init__.py
-│   ├── controller.py       # BIController - サイクル制御
-│   ├── models.py           # BIInputData データクラス
-│   └── utils.py            # Soft Prefix生成
-├── api/                    # API層
-│   ├── llm.py              # LLMクライアント
-│   ├── tts.py              # TTSクライアント
-│   ├── osc.py              # OSCサーバー/クライアント
-│   └── utils.py            # LLM/TTS設定
-├── stackflow/              # StackFlow通信
+│   ├── controller.py              # BIController - サイクル制御
+│   ├── models.py                  # BIInputData データクラス
+│   └── utils.py                   # Soft Prefix生成
+├── api/                           # API層
+│   ├── llm.py                     # LLMクライアント
+│   ├── tts.py                     # TTSクライアント
+│   ├── osc.py                     # OSCサーバー/クライアント
+│   ├── audio_effects.py           # 音響エフェクト処理（Ghost/Reverb/Mastering）
+│   ├── text_transform.py          # テキスト変換（ひらがな化、母音伸ばし）
+│   └── utils.py                   # LLM/TTS設定、NGワードフィルタ
+├── stackflow/                     # StackFlow通信
 │   └── utils.py
-├── utils/                  # ユーティリティ
+├── utils/                         # ユーティリティ
 │   ├── __init__.py
-│   └── network_config.py   # ネットワーク設定CSV読み込み
-├── config/                 # 設定ファイル
-│   ├── config.json
-│   └── networks.csv
-├── tests/                  # テストスクリプト
+│   └── network_config.py          # ネットワーク設定CSV読み込み
+├── input_controller/              # 入力制御システム
+│   ├── input_controller.py        # STT + センサー入力
+│   ├── bi_input_sender.py         # OSC送信
+│   └── input_config.example.json  # 設定例
+├── monitor/                       # Web管理UI
+│   ├── app.py                     # Flask + SocketIOサーバー
+│   ├── templates/                 # HTMLテンプレート
+│   └── static/                    # 静的ファイル
+├── runpod/                        # RunPod統合（クラウドVC）
+│   └── README.md
+├── systemd/                       # systemd自動起動設定
+│   ├── ccbt-audio-keepalive.service
+│   └── ccbt-bi-check.service
+├── tools/                         # 開発ツール
+├── config/                        # 設定ファイル
+│   ├── config.json                # メイン設定
+│   ├── networks.csv               # ネットワーク設定
+│   ├── plant_sensor_config.json   # 植物センサー設定
+│   └── ngwords.json               # NGワード設定
+├── audio/                         # 待機音声ファイル
+├── tests/                         # テストスクリプト
 │   ├── test_bi.py
 │   └── test_multi_target.py
-├── scripts/                # インストール/セットアップ
-└── docs/                   # ドキュメント
+├── scripts/                       # インストール/セットアップ
+└── docs/                          # ドキュメント
+    ├── requirements.md
+    ├── plan.md
+    └── tasks.md
 ```
 
 ---
@@ -109,22 +137,62 @@ CCBT-2025-Parallel-Botanical-Garden-Proto/
 ```json
 {
   "network": {
-    "device_id": 1,                    // 自分のデバイスID
     "csv_path": "config/networks.csv"  // ネットワーク設定CSVのパス
+    // device_idは自動検出（/etc/ccbt-device-id または /etc/network/interfaces）
   },
   "cycle": {
-    "receive_duration": 3.0,   // 入力受付期間（秒）
-    "rest_duration": 1.0,      // 休息期間（秒）
-    "max_data_age": 60.0       // データ有効期限（秒）
+    "receive_duration": 3.0,    // 入力受付期間（秒）
+    "rest_duration": 1.0,       // 休息期間（秒）
+    "max_relay_count": 6        // 伝達回数の上限（これ以上は破棄）
   },
   "osc": {
     "receive_port": 8000
   },
+  "mixer": {
+    "host": "10.0.0.200",       // Mixer PCのIPアドレス
+    "port": 8000
+  },
   "common": {
-    "lang": "ja"  // "ja", "en", "zh", "fr"
+    "lang": "ja"  // "ja", "en", "fr", "fa", "ar", "zh"（デバイスIDから自動決定）
   },
   "stack_flow_llm": {
-    "max_tokens": 128
+    "max_tokens": 64,
+    "soft_prefix_vals": [0.08],
+    "max_output_chars": {"ja": 20, "zh": 20, "en": 50, "fr": 50, "fa": 40, "ar": 40}
+  },
+  "audio": {
+    "playback_device": "dmixer",
+    "sample_rate": 48000,
+    "channels": 2,
+    "effect_mode": "ghost",     // ghost（ゴーストパイプライン）、rumble、off
+    "waiting_audio_dir": "audio",
+    "waiting_audio_prefix": "AE_",
+    "pitch_shift": { "enabled": true, "semitones": [-3, -2, 0, 0, 2, 3] },
+    "speed": { "mode": "atempo", "value": 0.8 },
+    "text_transform": {
+      "enabled": true,
+      "to_hiragana": true,
+      "elongation_mode": "mixed"
+    },
+    // 詳細なエフェクト設定は実際のconfig.jsonを参照
+  },
+  "led_control": {
+    "enabled": true,
+    "fade_up_duration": 15.0,
+    "fade_down_duration": 15.0,
+    "receiving_min_brightness": 0.0,
+    "receiving_max_brightness": 0.1,
+    "generating_min_brightness": 0.05,
+    "generating_max_brightness": 0.25,
+    // PCA9685ハードウェア設定など詳細は実際のconfig.jsonを参照
+  },
+  "llm_settings": {
+    "ja": {
+      "model": "TinySwallow-1.5B",
+      "system_prompt": "植物の翻訳者。森林の詩を短い単語で紡ぐ。",
+      "instruction_prompt": "続き: "
+    }
+    // en, fr, fa, ar, zhも同様
   }
 }
 ```
@@ -148,14 +216,31 @@ ID,IP,To
 
 ### 主な設定項目
 
-- **network.device_id**: 自分のデバイスID（networks.csvから情報を取得）
+- **network**: ネットワーク設定
+  - `csv_path`: ネットワーク設定CSVのパス
+  - デバイスIDは自動検出（`/etc/ccbt-device-id`または`/etc/network/interfaces`から取得）
 - **cycle**: サイクル設定
-  - `receive_duration`: 入力受付期間
-  - `rest_duration`: 休息期間
-  - `max_data_age`: データ有効期限（古いデータは自動破棄）
-- **common.lang**: デフォルト言語（日本語、英語、中国語、フランス語）
+  - `receive_duration`: 入力受付期間（秒）
+  - `rest_duration`: 休息期間（秒）
+  - `max_relay_count`: 伝達回数の上限（これ以上は破棄）
+- **common.lang**: デフォルト言語（デバイスIDの末尾数字から自動決定: ja/en/fr/fa/ar/zh）
+- **audio**: 音声出力設定
+  - `effect_mode`: エフェクトモード（ghost/rumble/off）
+  - `pitch_shift`: ピッチシフト設定
+  - `speed`: 速度変更設定
+  - `text_transform`: テキスト変換設定（ひらがな化、母音伸ばし）
+- **led_control**: LED制御設定
+  - `enabled`: LED制御の有効/無効
+  - `fade_up_duration` / `fade_down_duration`: フェード時間
+  - `receiving_*_brightness` / `generating_*_brightness`: 状態別の輝度範囲
+- **llm_settings**: 言語別LLM設定（モデル、システムプロンプト、指示プロンプト）
 
-**設定変更方法**: デバイスIDを変更するだけで、IPアドレスと送信先が自動的に解決されます
+**設定変更方法**:
+- デバイスIDは自動検出されるため、手動設定は不要
+- 言語もデバイスIDから自動決定されるため、手動設定は不要（オーバーライド可能）
+- IPアドレスと送信先はnetworks.csvから自動的に解決されます
+
+**詳細**: [docs/requirements.md](docs/requirements.md)を参照
 
 ---
 
@@ -250,16 +335,24 @@ tmux attach -u -t ccbt-llm
 | エンドポイント | 引数 | 機能 |
 |------------|------|------|
 | `/bi/input` | text, soft_prefix_b64, relay_count | 入力データ受付 |
+| `/bi/soft_prefix_update` | soft_prefix_val, cf_value, ae_value | Soft Prefix更新＋LEDパフォーマンス |
 | `/bi/stop` | なし | サイクル停止 |
 | `/bi/status` | なし | ステータス取得 |
 
-**注意**: サイクルはアプリケーション起動時に自動開始されるため、`/bi/start`エンドポイントは不要です。
+**注意**: サイクルはアプリケーション起動時に自動開始されるため、`/bi/start`エンドポイントは存在しません。
 
-### `/bi/input` の引数
+### エンドポイント詳細
 
+#### `/bi/input`
 - `text` (str): テキストデータ
 - `soft_prefix_b64` (str): LLM推論用のsoft prefix（Base64エンコード済みbf16データ）
-- `relay_count` (int): メッセージの伝達回数（0から始まる整数）
+- `relay_count` (int): メッセージの伝達回数（0から始まる整数、max_relay_count以上で破棄）
+
+#### `/bi/soft_prefix_update`
+- `soft_prefix_val` (float): 新しいsoft prefix値
+- `cf_value` (float): クロロフィル蛍光値（オプション）
+- `ae_value` (float): Acoustic Emission値（オプション）
+- 植物センサー統合システムから送信され、LEDパフォーマンスをトリガーします
 
 ---
 
@@ -326,35 +419,41 @@ python tests/test_multi_target.py
 
 ### Pythonパッケージ
 
-```toml
-[project]
-dependencies = [
-    "argostranslate>=1.9.6",    # オフライン翻訳
-    "googletrans>=4.0.2",       # Google翻訳API
-    "loguru>=0.7.3",            # ロギング
-    "python-osc>=1.9.3",        # OSCプロトコル
-]
-```
+主要な依存関係（詳細は`pyproject.toml`を参照）：
+
+- **loguru**: ロギング
+- **python-osc**: OSCプロトコル
+- **openai**: OpenAI互換TTS/STT API
+- **numpy**: 数値演算、信号処理
+- **scipy**: 科学計算、フィルタリング、音響エフェクト
+- **soundfile**: 音声ファイルI/O
+- **smbus2**: I2C通信（PCA9685制御用）
+- **pykakasi**: ひらがな変換（オプション）
+- **flask**: Web管理UI（Monitor用）
+- **flask-socketio**: リアルタイム通信（Monitor用）
+- **paramiko**: SSH接続（Monitor用）
+- **pyserial**: シリアル通信（Input Controller用）
 
 ### StackFlowモデル
 
 ```bash
 # LLMモデル
-apt install llm-model-qwen2.5-0.5b-prefill-ax630c
+apt install llm-model-TinySwallow-1.5B
 
-# TTSモデル
-apt install llm-model-melotts-ja-jp
-apt install llm-model-melotts-en-us
-apt install llm-model-melotts-zh-cn
+# TTSモデル（言語別）
+apt install llm-model-melotts-ja-jp    # 日本語
+apt install llm-model-melotts-en-us    # 英語
+apt install llm-model-melotts-zh-cn    # 中国語
+apt install llm-model-melotts-fr-fr    # フランス語
+apt install llm-model-melotts-fa-ir    # ペルシャ語
+apt install llm-model-melotts-ar-sa    # アラビア語
 ```
 
-### 翻訳パッケージ
+### システムコマンド
 
-argostranslateパッケージ（オフライン翻訳用）：
-- `en_ja`: 英語→日本語
-- `ja_en`: 日本語→英語
-- `zh_ja`: 中国語→日本語
-- `fr_ja`: フランス語→日本語
+- **FFmpeg**: 音声エフェクト処理、フォーマット変換、ピッチシフト、速度変更
+- **aplay** / **tinyplay**: ALSA経由での音声ファイル再生
+- **i2cdetect**: I2Cデバイス検出（PCA9685用）
 
 ---
 

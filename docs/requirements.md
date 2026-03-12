@@ -103,26 +103,153 @@ M5Stack LLM Compute Kit上で動作する分散型音声対話システム。複
 ## 3. 主要機能
 
 ### 3.1 LLM推論
-- **モデル**: qwen2.5-0.5B-prefill-20e
-- **出力**: 最大128トークン（通常2~3トークン）
-- **プロンプト**: 詩的な短文生成に特化
+- **モデル**: TinySwallow-1.5B（全言語共通）
+- **出力**: 最大64トークン（通常2~3トークン）
+- **プロンプト**: 詩的な短文生成に特化（言語別システムプロンプト）
 - **Soft Prefix**: bf16形式のプリフィックスチューニング対応
+- **Soft Prefix値**: config.jsonの`stack_flow_llm.soft_prefix_vals`からランダム選択
+- **最大出力文字数**: 言語別に制限（ja: 20文字、en/fr: 50文字、fa/ar: 40文字）
+- **NGワードフィルタリング**: 生成テキストから不適切な単語を自動除去（`config/ngwords.json`）
 
 ### 3.2 TTS音声合成
-- **モデル**: MeloTTS (日本語/英語/中国語)
-- **出力方式**: WAVファイル書き出し→tinyplay再生 (v2.1以降)
+- **モデル**: MeloTTS (日本語/英語/中国語/フランス語/ペルシャ語/アラビア語)
+- **出力方式**: WAVファイル書き出し→FFmpegエフェクト処理→aplay/tinyplay再生
 - **API**: OpenAI互換API (`http://127.0.0.1:8000/v1`)
-- **フォーマット**: WAV形式（16kHz, mono, s16）
-- **後処理**: FFmpeg変換（オプション）、ランブルエフェクト（オプション）
-- **音量**: デフォルト15%
-- **LED連動**: TTS再生開始前にLEDフェードアップ、再生終了後にLEDフェードダウン
+- **フォーマット**: WAV形式（48kHz, stereo, s16）
+- **テキスト前処理**: ひらがな化＋母音伸ばしエフェクト（日本語のみ、オプション）
+- **音響エフェクト**: "Accumulating Ghosts"パイプライン（デフォルト、詳細は3.3節）
+- **ピッチシフト**: 倍音列ベースの音程からランダム選択（オプション）
+- **速度変更**: atempo（タイムストレッチ）またはtape（テープ速度）モード（オプション）
+- **再生デバイス**: ALSA dmixer経由
+- **LED連動**: TTS再生中はLEDフェード制御（RECEIVING/GENERATING状態別）
+- **待機音声**: RECEIVING/GENERATING中に待機音声をランダムループ再生（`audio/AE_*.wav`など）
 
-### 3.3 OSC通信
+### 3.3 音響エフェクト処理（Accumulating Ghosts Pipeline）
+
+TTS生成音声に対し、Jóhann Jóhannsson風の「蓄積するゴースト」音響処理を適用：
+
+**パイプライン構成**:
+```
+TTS生WAV → セグメント分割 → ゴースト蓄積 → ギャップフィル → ミックス
+  → サチュレーション → Schroederリバーブ → マルチバンドEQ
+  → コンプレッサー → ステレオ化 → ピッチシフト → 速度変更
+```
+
+**主要コンポーネント**:
+
+1. **セグメンテーション**: エネルギーベースで音節単位に分割
+2. **ゴースト蓄積**: 各音節がスペクトル残像（ゴースト）を残す。後半ほどローパスカットオフが下がり暗い倍音クラスターに
+3. **ギャップフィル**: 音節間の無音区間をスペクトルモーフで補間
+4. **Schroederリバーブ**: 全帰還コムフィルタ+オールパスによるアルゴリズミックリバーブ
+5. **マスタリング**: テープサチュレーション→マルチバンドEQ→コンプレッサー
+6. **ステレオ化**: Haas式デコリレーション（左右微小遅延差）
+
+**設定項目** (`config.json`の`audio`セクション):
+- `effect_mode`: "ghost"（ゴーストパイプライン）、"rumble"（旧ランブルエフェクト）、"off"（エフェクトなし）
+- `ghost`: ゴースト蓄積パラメータ（linger_s、level、cutoff_start、cutoff_decay、resonance、freeze_mode）
+- `segmentation`: セグメント分割パラメータ（silence_threshold、min_segment_ms、max_segment_ms）
+- `bloom`: セグメントフェード（attack_ms、release_ms）
+- `gap_fill`: ギャップフィルパラメータ（level、cutoff）
+- `reverb`: リバーブパラメータ（room_size、damping、wet、predelay_ms）
+- `mastering`: マスタリングパラメータ（saturation_drive、low_boost_db、mid_cut_db、air_boost_db、comp_threshold_db、comp_ratio）
+- `stereo_width`: ステレオ幅（0-1）
+- `global_bloom`: 全体フェード（attack_s、release_s）
+- `voice_level`: ミックス内での声の音量バランス
+
+**詳細**: 実装は[api/audio_effects.py](../api/audio_effects.py)を参照
+
+### 3.4 テキスト変換（日本語のみ）
+
+TTS入力テキストに対し、以下の変換を適用（オプション）：
+
+1. **ひらがな化**: カタカナ→ひらがな変換（pykakasi使用、未インストール時は単純置換）
+2. **母音伸ばし**: 各文字を確率的に伸ばす
+   - `elongation_mode`: "dash"（長音符「ー」）、"vowel"（母音繰返し「ああ」）、"mixed"（ランダム混合）、"off"（伸ばしなし）
+   - `elongation_probability`: 各文字が伸ばされる確率（0-1）
+   - `elongation_length`: 伸ばす長さの範囲（min-max文字数）
+
+**設定項目** (`config.json`の`audio.text_transform`):
+```json
+"text_transform": {
+  "enabled": true,
+  "to_hiragana": true,
+  "elongation_mode": "mixed",
+  "elongation_probability": 0.8,
+  "elongation_length": {"min": 2, "max": 5}
+}
+```
+
+**詳細**: 実装は[api/text_transform.py](../api/text_transform.py)を参照
+
+### 3.5 LED制御
+
+**PCA9685 OSC LED Server** (`pca9685_osc_led_server.py`):
+- I2C経由でPCA9685 PWMドライバを制御
+- OSC経由で輝度制御を受け付け
+- サイクル状態に応じた輝度範囲の設定
+- フェードアップ/ダウンアニメーション
+- Soft Prefix更新イベント時の特別なLEDパフォーマンス
+
+**設定項目** (`config.json`の`led_control`):
+- `enabled`: LED制御の有効/無効
+- `targets`: LED制御OSCの送信先リスト
+- `fade_steps`: フェードのステップ数
+- `fade_up_duration` / `fade_down_duration`: フェードの時間（秒）
+- `receiving_min_brightness` / `receiving_max_brightness`: RECEIVING状態の輝度範囲
+- `generating_min_brightness` / `generating_max_brightness`: GENERATING状態の輝度範囲
+- `soft_prefix.default_fade_up_duration` / `default_fade_down_duration`: Soft Prefix更新時のフェード時間
+- `pca9685`: PCA9685ハードウェア設定（I2Cアドレス、チャンネル、バス、周波数、ガンマ補正など）
+
+**詳細**: [pca9685_osc_led_server.py](../pca9685_osc_led_server.py)を参照
+
+### 3.6 植物センサー統合
+
+**植物センサーデータの自動取得とSoft Prefix制御**:
+
+- **クロロフィル蛍光（CF）デバイス**: クロロフィル蛍光値の測定
+- **Acoustic Emission（AE）センサー**: 植物の音響放射の測定
+- **AE×CFマトリクス**: 2次元マトリクスでsoft_prefix値を動的に決定
+- **自動OSC送信**: `/bi/soft_prefix_update`エンドポイント経由でBIシステムに通知
+
+**設定ファイル**: `config/plant_sensor_config.json`
+
+**詳細**: [docs/plant_sensor.md](plant_sensor.md)を参照（別途作成予定）
+
+### 3.7 入力制御（Input Controller）
+
+**音声入力とセンサー入力の統合システム**:
+
+- **STT（Speech-to-Text）**: OpenAI Whisper APIを使用した音声認識
+- **センサー入力**: シリアル通信経由でセンサーデータを受信
+- **BiInputSender**: 入力データをOSC経由でBIシステムに送信
+
+**設定ファイル**: `input_controller/input_config.example.json`
+
+**詳細**: [docs/input_controller.md](input_controller.md)を参照（別途作成予定）
+
+### 3.8 デバイスID・言語の自動検出
+
+**デバイスID自動検出**:
+1. `/etc/ccbt-device-id`ファイルから読み込み（優先）
+2. `/etc/network/interfaces`の最後の行から抽出（フォールバック）
+
+**言語自動検出**:
+- デバイスIDの末尾の数字から言語を自動決定
+  - 1-2: `ja`（日本語）
+  - 3-4: `en`（英語）
+  - 5-6: `fr`（フランス語）
+  - 7-8: `fa`（ペルシャ語）
+  - 9-0: `ar`（アラビア語）
+
+**詳細**: [main.py:resolve_device_id()](../main.py)、[main.py:resolve_lang_from_device_id()](../main.py)を参照
+
+### 3.9 OSC通信
 
 #### 受信エンドポイント（UDP: 8000）
 | エンドポイント | 引数 | 機能 |
 |------------|------|------|
 | `/bi/input` | text, soft_prefix_b64, relay_count | 入力データ受付 |
+| `/bi/soft_prefix_update` | soft_prefix_val, cf_value, ae_value | Soft Prefix更新＋LED パフォーマンス |
 | `/bi/stop` | なし | サイクル停止 |
 | `/bi/status` | なし | ステータス取得 |
 
@@ -209,28 +336,119 @@ ID,IP,To
 2. 起動時にnetworks.csvから該当IDの情報を読み込み
 3. IPアドレスと送信先が自動的に解決される
 
-### 4.3 音声出力設定（v2.1以降）
+### 4.3 音声出力設定
 
-config.jsonに音声出力関連の設定を追加：
+config.jsonの`audio`セクションで音声出力関連の設定を管理：
 
+**基本設定**:
 ```json
 "audio": {
-  "tinyplay_card": 0,              // ALSAカード番号
-  "tinyplay_device": 1,            // ALSAデバイス番号
-  "sample_rate": 16000,            // サンプリングレート（Hz）
-  "channels": 1,                   // チャンネル数（1: mono, 2: stereo）
-  "sample_format": "s16",          // サンプルフォーマット（s16, s32, etc.）
-  "enable_ffmpeg_convert": true,   // FFmpeg変換の有効/無効
-  "enable_rumble_effect": false,   // ランブルエフェクトの有効/無効
-  "temp_wav_dir": "./tmp",         // 一時ファイル保存先
+  "playback_device": "dmixer",         // 再生デバイス（dmixer、tinyplay、aplay）
+  "tinyplay_card": 0,                  // ALSAカード番号
+  "tinyplay_device": 1,                // ALSAデバイス番号
+  "sample_rate": 48000,                // サンプリングレート（Hz）
+  "channels": 2,                       // チャンネル数（1: mono, 2: stereo）
+  "sample_format": "s16",              // サンプルフォーマット（s16, s32）
+  "enable_ffmpeg_convert": true,       // FFmpeg変換の有効/無効
+  "enable_rumble_effect": true,        // エフェクト処理の有効/無効（ghostまたはrumble）
+  "temp_wav_dir": "./tmp",             // 一時ファイル保存先
 
-  // 高度なランブルエフェクト設定（v2.2以降）
-  "rumble_pitch_steps": -16.0,     // ピッチシフト（半音単位、-16 ≈ -1.3オクターブ）
-  "rumble_sub_oct_mix": 0.55,      // サブオクターブレイヤーのミックス量（0..1）
-  "rumble_mix": 0.25,              // シンセティックランブルノイズのミックス量（0..1）
-  "rumble_base_hz": 55.0,          // ランブル生成のベース周波数（Hz）
-  "rumble_drive": 0.55,            // ディストーションドライブ量（0..1）
-  "rumble_xover_hz": 280.0         // クロスオーバー周波数（Hz）
+  // 待機音声ループ
+  "waiting_audio_dir": "audio",        // 待機音ファイルディレクトリ
+  "waiting_audio_prefix": "AE_",       // 待機音ファイルのプレフィックス
+
+  // エフェクトモード
+  "effect_mode": "ghost",              // ghost（ゴーストパイプライン）、rumble（旧ランブル）、off（エフェクトなし）
+
+  // ピッチシフト
+  "pitch_shift": {
+    "enabled": true,
+    "semitones": [-3, -2, 0, 0, 2, 3]  // 半音単位のピッチ候補リスト
+  },
+
+  // 速度変更
+  "speed": {
+    "mode": "atempo",                  // atempo（タイムストレッチ）、tape（テープ速度）、off
+    "value": 0.8,                      // 固定速度倍率（nullでランダム）
+    "range": {"min": 0.5, "max": 1.3}  // ランダム時の範囲
+  },
+
+  // テキスト変換（日本語のみ）
+  "text_transform": {
+    "enabled": true,
+    "to_hiragana": true,               // カタカナ→ひらがな変換
+    "elongation_mode": "mixed",        // dash、vowel、mixed、off
+    "elongation_probability": 0.8,     // 伸ばす確率（0-1）
+    "elongation_length": {"min": 2, "max": 5}  // 伸ばす長さ範囲
+  },
+
+  // ゴーストエフェクト設定（詳細はconfig.jsonを参照）
+  "ghost": { ... },
+  "segmentation": { ... },
+  "bloom": { ... },
+  "gap_fill": { ... },
+  "reverb": { ... },
+  "mastering": { ... },
+  "stereo_width": 0.25,
+  "global_bloom": { ... },
+  "voice_level": 0.56
+}
+```
+
+**詳細な設定項目**: 実際の[config/config.json](../config/config.json)を参照（全パラメータに詳細なコメント付き）
+
+### 4.4 LED制御設定
+
+config.jsonの`led_control`セクションでLED制御の設定を管理：
+
+```json
+"led_control": {
+  "enabled": true,
+  "targets": [
+    {"host": "127.0.0.1", "port": 9000}
+  ],
+  "fade_steps": 40,
+  "fade_up_duration": 15.0,              // TTS開始時のフェードアップ時間（秒）
+  "fade_down_duration": 15.0,            // TTS終了時のフェードダウン時間（秒）
+  "receiving_min_brightness": 0.0,       // RECEIVING状態の最小輝度
+  "receiving_max_brightness": 0.1,       // RECEIVING状態の最大輝度
+  "generating_min_brightness": 0.05,     // GENERATING状態の最小輝度
+  "generating_max_brightness": 0.25,     // GENERATING状態の最大輝度
+  "soft_prefix": {
+    "default_fade_up_duration": 2.0,
+    "default_fade_down_duration": 2.0
+  },
+  "pca9685": {
+    "addr": 64,                          // I2Cアドレス
+    "channel": 0,                        // PWMチャンネル
+    "bus": null,                         // I2Cバス番号（nullで自動）
+    "freq": 1000.0,                      // PWM周波数（Hz）
+    "gamma": 1.0,                        // ガンマ補正
+    "max_brightness": 1.0,               // 最大輝度
+    "fade": 0.0,                         // フェード時間
+    "rate": 100.0,                       // 更新レート（Hz）
+    "reconnect_interval": 2.0            // 再接続間隔（秒）
+  }
+}
+```
+
+### 4.5 LLM設定（言語別）
+
+config.jsonの`llm_settings`セクションで言語別のLLM設定を管理：
+
+```json
+"llm_settings": {
+  "ja": {
+    "model": "TinySwallow-1.5B",
+    "system_prompt": "植物の翻訳者。森林の詩を短い単語で紡ぐ。",
+    "instruction_prompt": "続き: "
+  },
+  "en": {
+    "model": "TinySwallow-1.5B",
+    "system_prompt": "Translator of plants. String short words about forests.",
+    "instruction_prompt": "continue: "
+  },
+  // fr、fa、ar、zhも同様
 }
 ```
 
@@ -239,24 +457,32 @@ config.jsonに音声出力関連の設定を追加：
 ## 5. 依存関係
 
 ### Pythonライブラリ
-- loguru (ロギング)
-- python-osc (OSCプロトコル)
-- openai (OpenAI互換TTS API)
-- numpy (数値演算、信号処理)
-- scipy (科学計算、フィルタリング)
-- soundfile (音声ファイルI/O)
-- argostranslate (オフライン翻訳) ※現在未使用、将来的なオプション機能として保持
-- googletrans (Google翻訳API) ※現在未使用、将来的なオプション機能として保持
+- **loguru**: ロギング
+- **python-osc**: OSCプロトコル
+- **openai**: OpenAI互換TTS/STT API
+- **numpy**: 数値演算、信号処理
+- **scipy**: 科学計算、フィルタリング、音響エフェクト
+- **soundfile**: 音声ファイルI/O
+- **smbus2**: I2C通信（PCA9685制御用）
+- **pykakasi**: ひらがな変換（オプション、未インストール時は単純置換）
+- **flask**: Web管理UI（Monitor用）
+- **flask-socketio**: リアルタイム通信（Monitor用）
+- **paramiko**: SSH接続（Monitor用）
+- **pyserial**: シリアル通信（Input Controller用）
 
 ### StackFlowモデル
-- llm-model-qwen2.5-0.5B-prefill-20e
-- llm-model-melotts-ja-jp
-- llm-model-melotts-en-us
-- llm-model-melotts-zh-cn
+- **llm-model-TinySwallow-1.5B**: LLM推論（全言語共通）
+- **llm-model-melotts-ja-jp**: 日本語TTS
+- **llm-model-melotts-en-us**: 英語TTS
+- **llm-model-melotts-zh-cn**: 中国語TTS
+- **llm-model-melotts-fr-fr**: フランス語TTS
+- **llm-model-melotts-fa-ir**: ペルシャ語TTS
+- **llm-model-melotts-ar-sa**: アラビア語TTS
 
-### システムコマンド（v2.1以降）
-- FFmpeg: WAV音声ファイルの変換（サンプリングレート、チャンネル数、フォーマット変換）
-- tinyplay: ALSA経由での音声ファイル再生
+### システムコマンド
+- **FFmpeg**: 音声エフェクト処理、フォーマット変換、ピッチシフト、速度変更
+- **aplay** / **tinyplay**: ALSA経由での音声ファイル再生
+- **i2cdetect**: I2Cデバイス検出（PCA9685用）
 
 ---
 
@@ -282,12 +508,47 @@ config.jsonに音声出力関連の設定を追加：
 ## 7. 制約事項
 
 ### 技術的制約
-- M5Stack LLM Compute Kitでのみ動作
+- M5Stack LLM Compute Kitでのみ動作（x86_64/ARM64 Ubuntu環境）
 - StackFlow APIに依存
-- オフライン動作（翻訳モデルがインストール済みの場合）
-- FFmpeg、tinyplayコマンドが必要（v2.1以降）
+- オフライン動作可能（全モデルがインストール済みの場合）
+- FFmpeg、aplay/tinyplayコマンドが必要
+- PCA9685 LED制御にはI2Cバスとsmbus2ライブラリが必要
+- ひらがな変換にはpykakasiが必要（オプション）
 
 ### 機能的制約
 - LLM出力は最大64トークン
-- TTS音声はWAVファイル経由で再生（v2.1以降、ファイル保存可能）
+- TTS音声はWAVファイル経由で再生（一時ファイルを`./tmp`に保存）
 - OSCプロトコルのみ対応
+- テキスト変換（ひらがな化、母音伸ばし）は日本語のみ対応
+
+### 運用上の制約
+- 長時間動作を想定（systemd自動起動推奨）
+- 植物センサー統合は別プロセス（`config/plant_sensor_config.json`で設定）
+- Input Controllerは別プロセス（`input_controller/`で管理）
+- Monitor（Web管理UI）は別プロセス（`monitor/`で管理）
+
+---
+
+## 8. 関連ドキュメント
+
+- **実装計画**: [docs/plan.md](plan.md)
+- **タスクリスト**: [docs/tasks.md](tasks.md)
+- **植物センサー統合**: [docs/plant_sensor.md](plant_sensor.md)（作成予定）
+- **Input Controller**: [docs/input_controller.md](input_controller.md)（作成予定）
+- **Monitor**: [docs/monitor.md](monitor.md)（作成予定）
+- **デプロイ手順**: [docs/deployment.md](deployment.md)（作成予定）
+- **開発者向けガイド**: [docs/development.md](development.md)（作成予定）
+
+---
+
+## 9. 開発者向け情報
+
+### デバッグモード
+- **Raw Audio Debug**: `--raw-audio`フラグでFFmpeg処理をスキップし、生のWAVを保存してaplayで再生
+
+### ログ
+- loguruによる詳細ログ出力
+- ログレベル: DEBUG、INFO、WARNING、ERROR
+
+### テストスクリプト
+- `tools/`ディレクトリに各種テストスクリプトあり
