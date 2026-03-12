@@ -22,9 +22,9 @@
     "melo_bin": "/workspace/dev/MeloTTS/.venv/bin/melo",
     "osc_json_dir": "/workspace/dev/seed-vc/osc",
     "tts_out_dir": "/workspace/dev/seed-vc/tts_out",
-    "vc_out_dir": "/workspace/dev/seed-vc/outputs",
+    "vc_out_dir": "/workspace/dev/seed-vc/bi_outputs",
     "audio_dir": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio",
-    "target_audio": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/nainiku.mp3",
+    "target_audio": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/audio/sample_BeforeMeaningComes_A.m4a",
     "worker_script": "/workspace/dev/CCBT-2025-Parallel-Botanical-Garden-Proto/runpod/runpod_a_make_voice.py"
   },
 
