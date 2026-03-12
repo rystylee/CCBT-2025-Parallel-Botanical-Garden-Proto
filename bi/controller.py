@@ -448,6 +448,33 @@ class BIController:
 
     # ========== LED control ==========
 
+
+    async def set_bri_ex(self, value: float):
+        """Set bri_ex (external brightness) on the LED server.
+
+        Args:
+            value: Brightness 0.0-1.0
+        """
+        led_config = self.config.get("led_control", {})
+        if not led_config.get("enabled", False):
+            return
+        targets = led_config.get("targets", [])
+        if targets:
+            await self._send_bri_ex(targets, value)
+
+    async def set_led_ratio(self, value: float):
+        """Set led_ratio on the LED server.
+
+        Args:
+            value: 0.0-1.0 (1.0 = bri only, 0.0 = bri_ex only)
+        """
+        led_config = self.config.get("led_control", {})
+        if not led_config.get("enabled", False):
+            return
+        targets = led_config.get("targets", [])
+        if targets:
+            await self._send_led_ratio(targets, value)
+
     async def start_soft_prefix_led_performance(self, fade_up_duration: float, fade_down_duration: float):
         """Execute LED performance for soft prefix update event.
 
@@ -646,6 +673,29 @@ class BIController:
                     self.osc_client.send_to_target(target, "/led", value)
                 except Exception as e:
                     logger.error(f"Failed to send LED value to {target}: {e}")
+
+    async def _send_bri_ex(self, targets: list, value: float):
+        """Send bri_ex (external brightness) to all configured LED targets."""
+        async with self._led_lock:
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/bri_ex", value)
+                except Exception as e:
+                    logger.error(f"Failed to send bri_ex to {target}: {e}")
+
+    async def _send_led_ratio(self, targets: list, value: float):
+        """Send led_ratio to all configured LED targets.
+
+        led_ratio controls the mix between bri and bri_ex:
+          duty = (led_ratio * bri) + ((1 - led_ratio) * bri_ex)
+          1.0 = bri only (default), 0.0 = bri_ex only
+        """
+        async with self._led_lock:
+            for target in targets:
+                try:
+                    self.osc_client.send_to_target(target, "/led_ratio", value)
+                except Exception as e:
+                    logger.error(f"Failed to send led_ratio to {target}: {e}")
 
     # ========== Status ==========
 

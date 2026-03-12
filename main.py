@@ -6,7 +6,8 @@ from loguru import logger
 
 from app import AppController
 from bi import BIController
-from pca9685_osc_led_server import start_led_server
+#from pca9685_osc_led_server_v2 import start_led_server
+from pca9685_osc_led_server_v2 import start_led_server
 from utils import load_network_config
 
 DEVICE_ID_FILE = "/etc/ccbt-device-id"
@@ -169,10 +170,34 @@ async def async_main():
         except (ValueError, TypeError) as e:
             logger.error(f"Failed to parse soft_prefix_update args: {args}, error: {e}")
 
+    def handle_bri_ex(_, *args):
+        """Handle /bi/bri_ex <float 0.0..1.0>"""
+        if len(args) < 1:
+            return
+        try:
+            value = float(args[0])
+            asyncio.create_task(bi.set_bri_ex(value))
+            logger.debug(f"bri_ex set to {value}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to parse bri_ex args: {args}, error: {e}")
+
+    def handle_led_ratio(_, *args):
+        """Handle /bi/led_ratio <float 0.0..1.0>"""
+        if len(args) < 1:
+            return
+        try:
+            value = float(args[0])
+            asyncio.create_task(bi.set_led_ratio(value))
+            logger.debug(f"led_ratio set to {value}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to parse led_ratio args: {args}, error: {e}")
+
     app.osc_server.register_handler("/bi/input", handle_bi_input)
     app.osc_server.register_handler("/bi/stop", handle_bi_stop)
     app.osc_server.register_handler("/bi/status", handle_bi_status)
     app.osc_server.register_handler("/bi/soft_prefix_update", handle_soft_prefix_update)
+    app.osc_server.register_handler("/bi/bri_ex", handle_bri_ex)
+    app.osc_server.register_handler("/bi/led_ratio", handle_led_ratio)
 
     # Auto-start BI cycle on startup
     logger.info("Auto-starting BI cycle")
