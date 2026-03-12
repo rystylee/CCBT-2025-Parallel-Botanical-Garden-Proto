@@ -353,7 +353,7 @@ class PlantSensorProcessor:
                     f"(Fo={raw_args[1]}, Fm={raw_args[2]})"
                 )
             else:
-                logger.debug(
+                logger.info(
                     f"[{device_id}] /pfi PFI={pfi_change:+.6f} "
                     f"class={pfi_class} flag={flag}"
                 )
@@ -415,6 +415,7 @@ class PlantSensorProcessor:
 
                 pfi = dev.get_pfi()
                 if pfi is None:
+                    logger.info(f"[{device_id}] pfi=None, skipping (pfi_change={dev.pfi_change}, pfi_class={dev.pfi_class})")
                     continue
 
                 # マトリクス参照
