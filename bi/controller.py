@@ -12,7 +12,8 @@ from api.tts import StackFlowTTSClient
 
 from .models import BIInputData
 from .utils import P, override_soft_prefix_val
-#from api.utils import cleanup_ng_words
+
+# from api.utils import cleanup_ng_words
 
 
 class BIController:
@@ -141,7 +142,7 @@ class BIController:
             self.generated_text = generated_text.strip()
             self.tts_text = generated_text.strip()
             logger.info(f"Generated text: {generated_text.strip()}")
-            #logger.info(f"Cleaned text: {self.tts_text}")
+            # logger.info(f"Cleaned text: {self.tts_text}")
 
             # Keep pulse running — it will continue during WAV preparation in OUTPUT phase
             self.state = "OUTPUT"
@@ -183,7 +184,7 @@ class BIController:
             await self._stop_waiting_loop()
 
             # Step 5: Fade up LED concurrently with playback
-            await self._led_fade(self._current_led_brightness, 1.0)
+            await self._led_fade(self._current_led_brightness, 1.0, phase="output")
 
             # Step 6: Wait for playback to finish
             try:
@@ -197,7 +198,7 @@ class BIController:
                 logger.error(f"Error in TTS playback: {e}")
 
             # Step 7: Fade down after playback
-            await self._led_fade(1.0, 0.0)
+            await self._led_fade(1.0, 0.0, phase="output")
 
             # Step 8: Cleanup WAV file
             self.tts_client.cleanup_wav(wav_path)
@@ -459,7 +460,6 @@ class BIController:
 
     # ========== LED control ==========
 
-
     async def set_bri_ex(self, value: float):
         """Set bri_ex (external brightness) on the LED server.
 
@@ -539,11 +539,12 @@ class BIController:
 
             logger.info("Soft prefix LED performance complete")
 
-    async def _led_fade(self, start: float, end: float, duration: float = None):
+    async def _led_fade(self, start: float, end: float, duration: float = None, phase: str = None):
         """Fade LED from start brightness to end brightness.
 
         Uses fade_up_duration or fade_down_duration from config depending
         on direction, unless an explicit duration is given.
+        If phase="output", uses output_fade_up_duration or output_fade_down_duration.
         Duration is scaled proportionally to the brightness range being covered.
         """
         led_config = self.config.get("led_control", {})
@@ -556,10 +557,17 @@ class BIController:
 
         steps = led_config.get("fade_steps", 40)
         if duration is None:
-            if end >= start:
-                duration = led_config.get("fade_up_duration", 2.0)
+            # Determine which config key to use based on phase and direction
+            if phase == "output":
+                if end >= start:
+                    duration = led_config.get("output_fade_up_duration", 3.0)
+                else:
+                    duration = led_config.get("output_fade_down_duration", 3.0)
             else:
-                duration = led_config.get("fade_down_duration", 2.0)
+                if end >= start:
+                    duration = led_config.get("fade_up_duration", 2.0)
+                else:
+                    duration = led_config.get("fade_down_duration", 2.0)
 
         # Scale duration proportionally to the brightness range being covered
         full_range = abs(end - start)
