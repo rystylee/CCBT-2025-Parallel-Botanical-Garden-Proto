@@ -76,49 +76,95 @@ class StackFlowLLMClient:
         return output
 
     def _inference_sync(self, send_data: dict) -> str:
-            """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
-            send_json(self.sock, send_data)
+        """Read all LLM responses at once, then extract deltas via regex."""
+        import re
+        import socket as _socket
 
-            output = ""
-            buf = ""
-            partial = ""
+        self._drain_socket()
+        send_json(self.sock, send_data)
+
+        # Bulk-read until finish signal or timeout
+        raw = b""
+        self.sock.settimeout(30.0)
+        try:
             while True:
-                part = self.sock.recv(4096).decode("utf-8")
-                if not part:
+                chunk = self.sock.recv(4096)
+                if not chunk:
                     break
-                buf += part
+                raw += chunk
+                if b'"finish":true' in raw or b'"finish": true' in raw:
+                    break
+        except _socket.timeout:
+            logger.warning("LLM inference timed out (30s)")
+        finally:
+            self.sock.setblocking(True)
 
-                while "\n" in buf:
-                    segment, buf = buf.split("\n", 1)
-                    partial += segment
+        text = raw.decode("utf-8", errors="replace")
+        logger.debug(f"LLM raw response: {len(text)} chars")
 
-                    stripped = partial.strip()
-                    if not stripped:
-                        partial = ""
-                        continue
+        # Extract all "delta":"..." values via regex
+        output = ""
+        for m in re.finditer(r'"delta"\s*:\s*("(?:[^"\\]|\\.)*")', text):
+            try:
+                delta = json.loads(m.group(1))
+                output += delta
+            except (json.JSONDecodeError, ValueError):
+                pass
 
-                    try:
-                        response_data = json.loads(stripped)
-                    except json.JSONDecodeError:
-                        # Not yet a complete JSON — keep accumulating
-                        partial += "\n"
-                        continue
+        logger.debug(f"LLM extracted: {output}")
+        return output
 
-                    # Successfully parsed
-                    partial = ""
-                    data = self._parse_inference_response(response_data)
-                    if data is None:
-                        return output
+    def _drain_socket(self):
+        """Clear any stale data from socket buffer before new inference."""
+        import socket as _socket
+        self.sock.setblocking(False)
+        drained = 0
+        try:
+            while True:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    break
+                drained += len(chunk)
+        except (BlockingIOError, _socket.error):
+            pass
+        finally:
+            self.sock.setblocking(True)
+        if drained:
+            logger.warning(f"Drained {drained} stale bytes from socket")
 
-                    delta = data.get("delta")
-                    finish = data.get("finish")
-                    output += delta
-                    logger.debug(delta)
+    @staticmethod
+    def _extract_json_object(buf: str):
+        """Extract one complete JSON object from buf using brace depth."""
+        start = buf.find("{")
+        if start == -1:
+            return None, buf
 
-                    if finish:
-                        return output
+        depth = 0
+        in_string = False
+        escape_next = False
 
-            return output
+        for i in range(start, len(buf)):
+            c = buf[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if c == "\\":
+                if in_string:
+                    escape_next = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return buf[start:i + 1], buf[i + 1:]
+
+        return None, buf
 
     @staticmethod
     def _decode_soft_prefix_val(b64: str) -> float:

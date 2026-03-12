@@ -333,7 +333,7 @@ class PlantSensorProcessor:
 
         try:
             client = SimpleUDPClient(self.relay_host, self.relay_port)
-            msg = osc_message_builder.OscMessageBuilder(address="/bi/input")
+            msg = osc_message_builder.OscMessageBuilder(address="/plantsensor")
             msg.add_arg(text)
             msg.add_arg(sp_b64)
             msg.add_arg(relay_count)
