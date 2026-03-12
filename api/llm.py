@@ -114,6 +114,58 @@ class StackFlowLLMClient:
         logger.debug(f"LLM extracted: {output}")
         return output
 
+    def _drain_socket(self):
+        """Clear any stale data from socket buffer before new inference."""
+        import socket as _socket
+        self.sock.setblocking(False)
+        drained = 0
+        try:
+            while True:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    break
+                drained += len(chunk)
+        except (BlockingIOError, _socket.error):
+            pass
+        finally:
+            self.sock.setblocking(True)
+        if drained:
+            logger.warning(f"Drained {drained} stale bytes from socket")
+
+    @staticmethod
+    def _extract_json_object(buf: str):
+        """Extract one complete JSON object from buf using brace depth."""
+        start = buf.find("{")
+        if start == -1:
+            return None, buf
+
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start, len(buf)):
+            c = buf[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if c == "\\":
+                if in_string:
+                    escape_next = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return buf[start:i + 1], buf[i + 1:]
+
+        return None, buf
+
     @staticmethod
     def _decode_soft_prefix_val(b64: str) -> float:
         """Decode the first BF16 value from a soft_prefix base64 string."""
