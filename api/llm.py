@@ -81,6 +81,7 @@ class StackFlowLLMClient:
 
             output = ""
             buf = ""
+            partial = ""
             while True:
                 part = self.sock.recv(4096).decode("utf-8")
                 if not part:
@@ -88,12 +89,23 @@ class StackFlowLLMClient:
                 buf += part
 
                 while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
-                    line = line.strip()
-                    if not line:
+                    segment, buf = buf.split("\n", 1)
+                    partial += segment
+
+                    stripped = partial.strip()
+                    if not stripped:
+                        partial = ""
                         continue
 
-                    response_data = json.loads(line)
+                    try:
+                        response_data = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        # Not yet a complete JSON — keep accumulating
+                        partial += "\n"
+                        continue
+
+                    # Successfully parsed
+                    partial = ""
                     data = self._parse_inference_response(response_data)
                     if data is None:
                         return output
