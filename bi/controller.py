@@ -280,7 +280,15 @@ class BIController:
         audio_config = self.config.get("audio", {})
         playback_device = audio_config.get("playback_device", "")
         waiting_dir = audio_config.get("waiting_audio_dir", "audio")
-        waiting_prefix = audio_config.get("waiting_audio_prefix", "waiting_")
+
+        # Per-device prefix selection based on last digit of device_id
+        device_id = audio_config.get("device_id", 0)
+        alt_digits = audio_config.get("waiting_audio_alt_digits", [])
+        if (device_id % 10) in alt_digits:
+            waiting_prefix = audio_config.get("waiting_audio_alt_prefix", "CF_")
+            logger.info(f"Device {device_id} (last digit {device_id % 10}) -> alt waiting prefix: {waiting_prefix}")
+        else:
+            waiting_prefix = audio_config.get("waiting_audio_prefix", "waiting_")
 
         # Collect matching files
         import glob

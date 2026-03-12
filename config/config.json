@@ -36,6 +36,11 @@
         "waiting_audio_prefix": "AE_",
         "_waiting_audio_prefix_note": "このプレフィックスで始まるファイル(.wav/.mp3)からランダム再生",
 
+        "waiting_audio_alt_digits": [8, 9],
+        "_waiting_audio_alt_digits_note": "device_id末尾がこのリストに含まれるデバイスは代替ファイルを再生",
+        "waiting_audio_alt_prefix": "waiting_",
+        "_waiting_audio_alt_prefix_note": "代替デバイス用のファイルプレフィックス。同じdiる内でプレフィックス違いで分離"
+
     "playback_device": "dmixer",
     "tinyplay_card": 0,
     "tinyplay_device": 1,
