@@ -338,7 +338,7 @@ class PlantSensorProcessor:
             msg.add_arg(sp_b64)
             msg.add_arg(relay_count)
             client.send(msg.build())
-            logger.debug(f"[{source}] → {self.relay_host}:{self.relay_port}")
+            logger.info(f"[{source}] → {self.relay_host}:{self.relay_port} /plantsensor text={text} sp_b64={sp_b64[:40]}... relay={relay_count}")
         except Exception as e:
             logger.error(f"送信失敗 {self.relay_host}:{self.relay_port}: {e}")
 
