@@ -22,6 +22,7 @@ import asyncio
 import csv
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -39,6 +40,10 @@ import struct
 SP_P = 1
 SP_H = 1536
 
+# /CF で始まるアドレスをマッチ (例: /CF01/pfi, /CF02/PFI_degree_of_change)
+CF_PFI_PATTERN = re.compile(r"^/(CF\d+)/pfi$", re.IGNORECASE)
+CF_ANY_PATTERN = re.compile(r"^/(CF\d+)/(.+)$", re.IGNORECASE)
+
 
 # ── BF16 / soft_prefix 生成 ──
 
@@ -53,21 +58,10 @@ def make_sp_b64(val: float, p: int = SP_P, h: int = SP_H) -> str:
 
 # ── AE×CF マトリクス ──
 
-# デフォルト値 (configで上書き可能)
 DEFAULT_MATRIX = {
-    # [AE段階][CF段階]
-    # AE低
-    (0, 0): 1e-3,   # low_worse:  沈黙+衰退 → 収束的・反復的
-    (0, 1): 3e-3,   # low_stable: 沈黙+安定 → やや柔らかい
-    (0, 2): 7e-3,   # low_better: 静かだが回復中 → 静寂からの跳躍
-    # AE中
-    (1, 0): 3e-3,   # mid_worse:  活動中だが効率低下
-    (1, 1): 7e-3,   # mid_stable: 通常の活動
-    (1, 2): 1e-2,   # mid_better: 活動中+改善 → 自由な展開
-    # AE高
-    (2, 0): 7e-3,   # high_worse: ストレス下で必死 → 緊張感
-    (2, 1): 1e-2,   # high_stable: 全力活動
-    (2, 2): 1e-2,   # high_better: 最も活発 → 最大の発散
+    (0, 0): 1e-3,   (0, 1): 3e-3,   (0, 2): 7e-3,
+    (1, 0): 3e-3,   (1, 1): 7e-3,   (1, 2): 1e-2,
+    (2, 0): 7e-3,   (2, 1): 1e-2,   (2, 2): 1e-2,
 }
 
 
@@ -76,11 +70,8 @@ class SensorMatrix:
 
     def __init__(self, config: dict):
         mat_cfg = config.get("matrix", {})
-
         self.ae_thresholds = mat_cfg.get("ae_thresholds", [0.33, 0.66])
         self.cf_thresholds = mat_cfg.get("cf_thresholds", [-0.3, 0.3])
-
-        # config の values からマトリクス構築
         v = mat_cfg.get("values", {})
         self.matrix = {
             (0, 0): v.get("low_worse",   DEFAULT_MATRIX[(0, 0)]),
@@ -95,37 +86,25 @@ class SensorMatrix:
         }
 
     def _ae_level(self, ae_norm: float) -> int:
-        """AE正規化値 → 0(低), 1(中), 2(高)"""
-        if ae_norm < self.ae_thresholds[0]:
-            return 0
-        elif ae_norm < self.ae_thresholds[1]:
-            return 1
+        if ae_norm < self.ae_thresholds[0]: return 0
+        elif ae_norm < self.ae_thresholds[1]: return 1
         return 2
 
     def _cf_level(self, pfi: float) -> int:
-        """PFI値 → 0(悪化), 1(安定), 2(良化)"""
-        if pfi < self.cf_thresholds[0]:
-            return 0
-        elif pfi < self.cf_thresholds[1]:
-            return 1
+        if pfi < self.cf_thresholds[0]: return 0
+        elif pfi < self.cf_thresholds[1]: return 1
         return 2
 
     def lookup(self, ae_norm: float, pfi: float) -> float:
-        """AE正規化値 + PFI → soft_prefix BF16値"""
-        ae_lv = self._ae_level(ae_norm)
-        cf_lv = self._cf_level(pfi)
-        val = self.matrix[(ae_lv, cf_lv)]
-        return val
+        return self.matrix[(self._ae_level(ae_norm), self._cf_level(pfi))]
 
     def lookup_with_info(self, ae_norm: float, pfi: float) -> tuple[float, str]:
-        """lookup + デバッグ用ラベル"""
         ae_lv = self._ae_level(ae_norm)
         cf_lv = self._cf_level(pfi)
         val = self.matrix[(ae_lv, cf_lv)]
         ae_labels = ["低", "中", "高"]
         cf_labels = ["悪化", "安定", "良化"]
-        label = f"AE{ae_labels[ae_lv]}+CF{cf_labels[cf_lv]}"
-        return val, label
+        return val, f"AE{ae_labels[ae_lv]}+CF{cf_labels[cf_lv]}"
 
 
 # ── CFデバイス ──
@@ -133,19 +112,22 @@ class SensorMatrix:
 class CFDeviceState:
     def __init__(self, device_id: str):
         self.device_id = device_id
-        self.pfi_change: Optional[float] = None
-        self.pfi_class: Optional[int] = None
+        self.pfi_change: float = 0.0       # デフォルト 0.0 (Noneではなく)
+        self.pfi_class: int = 3             # デフォルト 3 (no_change)
         self.flag: str = "same"
         self.last_update: float = 0.0
         self.last_sent: float = 0.0
+        self.ever_received: bool = False    # 1回でもデータを受信したか
 
     def update_pfi(self, value: float):
         self.pfi_change = value
         self.last_update = time.time()
+        self.ever_received = True
 
     def update_class(self, value: int):
         self.pfi_class = value
         self.last_update = time.time()
+        self.ever_received = True
 
     def update_flag(self, value: str):
         self.flag = value
@@ -154,14 +136,9 @@ class CFDeviceState:
     def is_updated(self) -> bool:
         return self.flag == "updated"
 
-    def get_pfi(self) -> Optional[float]:
-        """PFI float を優先、なければ class から復元"""
-        if self.pfi_change is not None:
-            return self.pfi_change
-        if self.pfi_class is not None:
-            # class(0~6) → float(-1~1) に近似変換
-            return (self.pfi_class - 3) / 3.0
-        return None
+    def get_pfi(self) -> float:
+        """常に float を返す (デフォルト 0.0)"""
+        return self.pfi_change
 
 
 # ── AEセンサー (ローカルCSV監視) ──
@@ -181,57 +158,41 @@ class AECsvWatcher:
         self.ae_normalized: float = 0.0
 
     def read_latest_csv(self) -> bool:
-        """最新CSVを読み、値が更新されたら True"""
         if not self.csv_dir.exists():
             return False
-
         csv_files = sorted(self.csv_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime)
         if not csv_files:
             return False
-
         latest = csv_files[-1]
         mtime = latest.stat().st_mtime
-
         if str(latest) == self.last_file and mtime == self.last_mtime:
             return False
-
         try:
             with open(latest, encoding="utf-8-sig") as f:
                 rows = list(csv.DictReader(f))
-
             if not rows:
                 return False
-
-            # 最終行の AE 値
             ae_val = float(rows[-1][self.ae_column])
             date_str = rows[-1].get("Date", "")
-
             self.last_file = str(latest)
             self.last_mtime = mtime
             self.latest_ae = ae_val
             self.ae_normalized = max(0.0, min(1.0,
                 ae_val / self.max_ae_count if self.max_ae_count > 0 else 0.0))
-
             logger.info(f"[AE] CSV更新: {latest.name} → "
                         f"AE={ae_val:.0f} norm={self.ae_normalized:.3f} (date={date_str})")
             return True
-
         except Exception as e:
             logger.error(f"[AE] CSV読み込み失敗: {latest} → {e}")
             return False
 
     async def poll_loop(self):
-        """定期的にCSVフォルダを監視"""
         if not self.enabled:
             logger.info("[AE] 無効 (ae_sensor.enabled = false)")
             return
-
         self.csv_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"[AE] CSV監視開始: {self.csv_dir} (間隔: {self.poll_interval}s)")
-
-        # 初回読み込み
         self.read_latest_csv()
-
         while True:
             self.read_latest_csv()
             await asyncio.sleep(self.poll_interval)
@@ -258,87 +219,78 @@ class PlantSensorProcessor:
         # マトリクス
         self.matrix = SensorMatrix(config)
 
-        # CFデバイス
+        # CFデバイス (configから初期登録)
         for did, info in config.get("cf_devices", {}).items():
             if did.startswith("_"):
                 continue
             self.cf_devices[did] = CFDeviceState(did)
+        # configに何もなければデフォルト
         if not self.cf_devices:
-            self.cf_devices["CF00"] = CFDeviceState("CF00")
             self.cf_devices["CF01"] = CFDeviceState("CF01")
+            self.cf_devices["CF02"] = CFDeviceState("CF02")
 
         # AEセンサー
         self.ae_watcher = AECsvWatcher(config.get("ae_sensor", {}))
 
-        # OSCハンドラ
-        for did in self.cf_devices:
-            # 個別アドレス (仕様書パターン)
-            self.dispatcher.map(f"/{did}/PFI_degree_of_change", self._on_pfi, did)
-            self.dispatcher.map(f"/{did}/PFI_degree_of_change_class", self._on_pfi_class, did)
-            self.dispatcher.map(f"/{did}/flag", self._on_flag, did)
-            # まとめ送信パターン (実機の実際の送信形式)
-            self.dispatcher.map(f"/{did}/pfi", self._on_pfi_combined, did)
-
+        # OSCハンドラ — 全て default_handler で処理する
+        # (pythonosc の dispatcher.map + extra args の挙動が不安定なため)
         self.dispatcher.map("/mixer", self._on_mixer)
-        self.dispatcher.set_default_handler(self._on_unknown)
+        self.dispatcher.set_default_handler(self._on_any)
 
         self._mixer_callback = None
         self.min_send_interval = config.get("min_send_interval_sec", 3.0)
 
     # ── OSCハンドラ ──
 
-    def _on_pfi(self, address: str, *args):
-        device_id = args[-1]
-        value = float(args[0])
-        dev = self.cf_devices.get(device_id)
-        if dev:
-            dev.update_pfi(value)
-            logger.debug(f"[{device_id}] PFI: {value:+.4f}")
+    def _ensure_cf_device(self, cf_id: str) -> CFDeviceState:
+        """cf_id が未登録なら自動追加"""
+        if cf_id not in self.cf_devices:
+            logger.info(f"✦ 新しいCFデバイス自動登録: {cf_id}")
+            self.cf_devices[cf_id] = CFDeviceState(cf_id)
+        return self.cf_devices[cf_id]
 
-    def _on_pfi_class(self, address: str, *args):
-        device_id = args[-1]
-        value = int(args[0])
-        dev = self.cf_devices.get(device_id)
-        if dev:
-            dev.update_class(value)
-            logger.debug(f"[{device_id}] Class: {value}")
+    def _on_any(self, address: str, *args):
+        """全OSCメッセージのルーター"""
 
-    def _on_flag(self, address: str, *args):
-        device_id = args[-1]
-        value = str(args[0])
-        dev = self.cf_devices.get(device_id)
-        if dev:
-            old_flag = dev.flag
-            dev.update_flag(value)
-            if value == "updated" and old_flag != "updated":
-                logger.info(f"[{device_id}] 🌱 データ更新!")
-
-    def _on_pfi_combined(self, address: str, *args):
-        """まとめ送信パターン: /{CFxx}/pfi timestamp Fo Fm ? ? ? PFI_change class flag
-
-        実機から送信される形式:
-          args = (timestamp, Fo, Fm, val3, val4, val5, PFI_degree_of_change, class, flag, device_id)
-          最後の device_id は dispatcher.map の追加引数
-        """
-        device_id = args[-1]   # dispatcher.map の追加引数
-        raw_args = args[:-1]   # 最後の device_id を除く実データ
-        dev = self.cf_devices.get(device_id)
-        if not dev:
+        # ── /CFxx/pfi (まとめ送信パターン) ──
+        m = CF_PFI_PATTERN.match(address)
+        if m:
+            cf_id = m.group(1)
+            self._handle_pfi_combined(cf_id, args)
             return
 
+        # ── /CFxx/PFI_degree_of_change 等 (個別パターン) ──
+        m2 = CF_ANY_PATTERN.match(address)
+        if m2:
+            cf_id = m2.group(1)
+            param = m2.group(2)
+            self._handle_cf_individual(cf_id, param, args)
+            return
+
+        # ── その他 ──
+        logger.debug(f"[unknown] {address}: {args}")
+
+    def _handle_pfi_combined(self, cf_id: str, args: tuple):
+        """まとめ送信: /{CFxx}/pfi timestamp Fo Fm ? ? ? PFI_change class flag
+
+        実機データ例:
+          ('2026-03-04 21:53:22', 175.63, 175.41, 174.44, 1.004, 0.477, -0.00043, 3, 'same')
+           args[0]=timestamp  [1]=Fo  [2]=Fm  [3-5]=?  [6]=PFI_change  [7]=class  [8]=flag
+        """
+        dev = self._ensure_cf_device(cf_id)
+
         try:
-            # args: (timestamp, Fo, Fm, ?, ?, ?, PFI_change, class, flag)
-            if len(raw_args) >= 9:
-                pfi_change = float(raw_args[6])
-                pfi_class = int(raw_args[7])
-                flag = str(raw_args[8])
-            elif len(raw_args) >= 7:
-                # フォールバック: 短い場合
-                pfi_change = float(raw_args[-3])
-                pfi_class = int(raw_args[-2])
-                flag = str(raw_args[-1])
+            if len(args) >= 9:
+                pfi_change = float(args[6])
+                pfi_class = int(args[7])
+                flag = str(args[8])
+            elif len(args) >= 3:
+                # 短い場合: 末尾3つを使う
+                pfi_change = float(args[-3])
+                pfi_class = int(args[-2])
+                flag = str(args[-1])
             else:
-                logger.warning(f"[{device_id}] /pfi unexpected args count={len(raw_args)}: {raw_args}")
+                logger.warning(f"[{cf_id}] /pfi unexpected args count={len(args)}: {args}")
                 return
 
             old_flag = dev.flag
@@ -348,27 +300,41 @@ class PlantSensorProcessor:
 
             if flag == "updated" and old_flag != "updated":
                 logger.info(
-                    f"[{device_id}] 🌱 データ更新! "
-                    f"PFI={pfi_change:+.6f} class={pfi_class} "
-                    f"(Fo={raw_args[1]}, Fm={raw_args[2]})"
+                    f"[{cf_id}] 🌱 データ更新! "
+                    f"PFI={pfi_change:+.6f} class={pfi_class}"
                 )
             else:
-                logger.info(
-                    f"[{device_id}] /pfi PFI={pfi_change:+.6f} "
+                logger.debug(
+                    f"[{cf_id}] PFI={pfi_change:+.6f} "
                     f"class={pfi_class} flag={flag}"
                 )
 
-        except (ValueError, IndexError) as e:
-            logger.error(f"[{device_id}] /pfi parse error: {e} args={raw_args}")
+        except (ValueError, IndexError, TypeError) as e:
+            logger.error(f"[{cf_id}] /pfi parse error: {e} args={args}")
+
+    def _handle_cf_individual(self, cf_id: str, param: str, args: tuple):
+        """個別アドレスパターン (仕様書形式)"""
+        dev = self._ensure_cf_device(cf_id)
+
+        if param == "PFI_degree_of_change" and args:
+            dev.update_pfi(float(args[0]))
+            logger.debug(f"[{cf_id}] PFI: {args[0]:+.4f}")
+        elif param == "PFI_degree_of_change_class" and args:
+            dev.update_class(int(args[0]))
+            logger.debug(f"[{cf_id}] Class: {args[0]}")
+        elif param == "flag" and args:
+            old_flag = dev.flag
+            dev.update_flag(str(args[0]))
+            if args[0] == "updated" and old_flag != "updated":
+                logger.info(f"[{cf_id}] 🌱 データ更新!")
+        else:
+            logger.debug(f"[{cf_id}] {param}: {args}")
 
     def _on_mixer(self, address: str, *args):
         text = " ".join(str(a) for a in args).strip()
         logger.info(f"[mixer] {text[:60]}")
         if self._mixer_callback:
             self._mixer_callback(address, *args)
-
-    def _on_unknown(self, address: str, *args):
-        logger.debug(f"[unknown] {address}: {args}")
 
     def set_mixer_callback(self, callback):
         self._mixer_callback = callback
@@ -397,11 +363,12 @@ class PlantSensorProcessor:
         except Exception as e:
             logger.error(f"送信失敗 {self.relay_host}:{self.relay_port}: {e}")
 
-    # ── メインループ: CF受信トリガーでAE参照 → マトリクス → 送信 ──
+    # ── メインループ ──
 
     async def distribution_loop(self):
-        """CFデバイスのデータ受信をトリガーに、AEを参照して
-        マトリクスからsoft_prefixを生成し、CFデバイスごとに送信"""
+        """CFデバイスのデータを元に、AEを参照して
+        マトリクスからsoft_prefixを生成し送信。
+        CFの値に変更がなくても、min_send_interval ごとに常に送信する。"""
         logger.info("[配信] ループ開始")
 
         while True:
@@ -413,15 +380,13 @@ class PlantSensorProcessor:
                 if (now - dev.last_sent) < self.min_send_interval:
                     continue
 
-                pfi = dev.get_pfi()
-                if pfi is None:
-                    logger.info(f"[{device_id}] pfi=None, skipping (pfi_change={dev.pfi_change}, pfi_class={dev.pfi_class})")
-                    continue
+                pfi = dev.get_pfi()  # 常に float (デフォルト 0.0)
 
                 # マトリクス参照
                 sp_val, label = self.matrix.lookup_with_info(ae_norm, pfi)
                 sp_b64 = make_sp_b64(sp_val, self.sp_p, self.sp_h)
 
+                received_marker = "" if dev.ever_received else " (未受信:default)"
                 text = f"[{device_id}:PFI{pfi:+.2f},AE{ae_norm:.2f},{label}]"
 
                 if dev.is_updated():
@@ -430,7 +395,7 @@ class PlantSensorProcessor:
                         f"(PFI={pfi:+.3f}, AE_norm={ae_norm:.3f})"
                     )
 
-                self.send_to_relay(text, sp_b64, source=device_id)
+                self.send_to_relay(text, sp_b64, source=f"{device_id}{received_marker}")
                 dev.last_sent = now
 
             await asyncio.sleep(1.0)
@@ -447,7 +412,8 @@ class PlantSensorProcessor:
         logger.info("🌱 植物センサー プロセッサ 起動")
         logger.info(f"  OSC受信:   {listen_ip}:{port}")
         logger.info(f"  送信先Mac: {self.relay_host}:{self.relay_port}")
-        logger.info(f"  CFデバイス: {list(self.cf_devices.keys())}")
+        logger.info(f"  CFデバイス(初期): {list(self.cf_devices.keys())}")
+        logger.info(f"  ※ 未登録のCFxx も自動追加されます")
         ae_status = f"有効 ({self.ae_watcher.csv_dir})" if self.ae_watcher.enabled else "無効"
         logger.info(f"  AEセンサー: {ae_status}")
         logger.info(f"  マトリクス:")
@@ -456,6 +422,7 @@ class PlantSensorProcessor:
             cf_l = ["CF悪化","CF安定","CF良化"][key[1]]
             logger.info(f"    {ae_l}+{cf_l} → {self.matrix.matrix[key]}")
         logger.info(f"  配信間隔:  {self.min_send_interval}s")
+        logger.info(f"  送信アドレス: /plantsensor")
         if self.dry_run:
             logger.info("  モード:    dry-run (送信なし)")
         logger.info("=" * 60)
