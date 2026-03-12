@@ -141,7 +141,7 @@ class BIController:
             self.generated_text = generated_text.strip()
             self.tts_text = generated_text.strip()
             logger.info(f"Generated text: {generated_text.strip()}")
-            logger.info(f"Cleaned text: {self.tts_text}")
+            #logger.info(f"Cleaned text: {self.tts_text}")
 
             # Keep pulse running — it will continue during WAV preparation in OUTPUT phase
             self.state = "OUTPUT"
