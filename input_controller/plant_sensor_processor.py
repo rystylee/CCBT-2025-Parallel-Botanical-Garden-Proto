@@ -272,9 +272,12 @@ class PlantSensorProcessor:
 
         # OSCハンドラ
         for did in self.cf_devices:
+            # 個別アドレス (仕様書パターン)
             self.dispatcher.map(f"/{did}/PFI_degree_of_change", self._on_pfi, did)
             self.dispatcher.map(f"/{did}/PFI_degree_of_change_class", self._on_pfi_class, did)
             self.dispatcher.map(f"/{did}/flag", self._on_flag, did)
+            # まとめ送信パターン (実機の実際の送信形式)
+            self.dispatcher.map(f"/{did}/pfi", self._on_pfi_combined, did)
 
         self.dispatcher.map("/mixer", self._on_mixer)
         self.dispatcher.set_default_handler(self._on_unknown)
@@ -310,6 +313,54 @@ class PlantSensorProcessor:
             if value == "updated" and old_flag != "updated":
                 logger.info(f"[{device_id}] 🌱 データ更新!")
 
+    def _on_pfi_combined(self, address: str, *args):
+        """まとめ送信パターン: /{CFxx}/pfi timestamp Fo Fm ? ? ? PFI_change class flag
+
+        実機から送信される形式:
+          args = (timestamp, Fo, Fm, val3, val4, val5, PFI_degree_of_change, class, flag, device_id)
+          最後の device_id は dispatcher.map の追加引数
+        """
+        device_id = args[-1]   # dispatcher.map の追加引数
+        raw_args = args[:-1]   # 最後の device_id を除く実データ
+        dev = self.cf_devices.get(device_id)
+        if not dev:
+            return
+
+        try:
+            # args: (timestamp, Fo, Fm, ?, ?, ?, PFI_change, class, flag)
+            if len(raw_args) >= 9:
+                pfi_change = float(raw_args[6])
+                pfi_class = int(raw_args[7])
+                flag = str(raw_args[8])
+            elif len(raw_args) >= 7:
+                # フォールバック: 短い場合
+                pfi_change = float(raw_args[-3])
+                pfi_class = int(raw_args[-2])
+                flag = str(raw_args[-1])
+            else:
+                logger.warning(f"[{device_id}] /pfi unexpected args count={len(raw_args)}: {raw_args}")
+                return
+
+            old_flag = dev.flag
+            dev.update_pfi(pfi_change)
+            dev.update_class(pfi_class)
+            dev.update_flag(flag)
+
+            if flag == "updated" and old_flag != "updated":
+                logger.info(
+                    f"[{device_id}] 🌱 データ更新! "
+                    f"PFI={pfi_change:+.6f} class={pfi_class} "
+                    f"(Fo={raw_args[1]}, Fm={raw_args[2]})"
+                )
+            else:
+                logger.debug(
+                    f"[{device_id}] /pfi PFI={pfi_change:+.6f} "
+                    f"class={pfi_class} flag={flag}"
+                )
+
+        except (ValueError, IndexError) as e:
+            logger.error(f"[{device_id}] /pfi parse error: {e} args={raw_args}")
+
     def _on_mixer(self, address: str, *args):
         text = " ".join(str(a) for a in args).strip()
         logger.info(f"[mixer] {text[:60]}")
@@ -338,7 +389,11 @@ class PlantSensorProcessor:
             msg.add_arg(sp_b64)
             msg.add_arg(relay_count)
             client.send(msg.build())
-            logger.info(f"[{source}] → {self.relay_host}:{self.relay_port} /plantsensor text={text} sp_b64={sp_b64[:40]}... relay={relay_count}")
+            logger.info(
+                f"[{source}] → {self.relay_host}:{self.relay_port} "
+                f"/plantsensor text={text} "
+                f"sp_b64={sp_b64[:40]}... relay={relay_count}"
+            )
         except Exception as e:
             logger.error(f"送信失敗 {self.relay_host}:{self.relay_port}: {e}")
 
