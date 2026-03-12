@@ -76,27 +76,49 @@ class StackFlowLLMClient:
         return output
 
     def _inference_sync(self, send_data: dict) -> str:
-        """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
-        send_json(self.sock, send_data)
+            """Run blocking TCP inference in a thread (called via asyncio.to_thread)."""
+            send_json(self.sock, send_data)
 
-        output = ""
-        while True:
-            response = receive_response(self.sock)
-            response_data = json.loads(response)
+            output = ""
+            buf = ""
+            partial = ""
+            while True:
+                part = self.sock.recv(4096).decode("utf-8")
+                if not part:
+                    break
+                buf += part
 
-            data = self._parse_inference_response(response_data)
-            if data is None:
-                break
+                while "\n" in buf:
+                    segment, buf = buf.split("\n", 1)
+                    partial += segment
 
-            delta = data.get("delta")
-            finish = data.get("finish")
-            output += delta
-            logger.debug(delta)
+                    stripped = partial.strip()
+                    if not stripped:
+                        partial = ""
+                        continue
 
-            if finish:
-                break
+                    try:
+                        response_data = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        # Not yet a complete JSON — keep accumulating
+                        partial += "\n"
+                        continue
 
-        return output
+                    # Successfully parsed
+                    partial = ""
+                    data = self._parse_inference_response(response_data)
+                    if data is None:
+                        return output
+
+                    delta = data.get("delta")
+                    finish = data.get("finish")
+                    output += delta
+                    logger.debug(delta)
+
+                    if finish:
+                        return output
+
+            return output
 
     @staticmethod
     def _decode_soft_prefix_val(b64: str) -> float:
