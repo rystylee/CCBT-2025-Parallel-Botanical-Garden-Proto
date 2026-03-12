@@ -118,15 +118,19 @@ def wait_file_stable(p: Path, checks: int = 6, interval: float = 0.2) -> bool:
     return True
 
 
+# def safe_basename(text: str, maxlen: int = 40) -> str:
+#     """テキストからファイル名安全なベース名を生成"""
+#     t = text.strip()
+#     t = re.sub(r"\s+", "_", t)
+#     t = re.sub(r'[\\/:*?"<>|]+', "_", t)
+#     t = re.sub(r"[\x00-\x1f]+", "_", t)
+#     t = t[:maxlen] if t else "text"
+#     h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+#     return f"{t}_{h}"
+
 def safe_basename(text: str, maxlen: int = 40) -> str:
-    """テキストからファイル名安全なベース名を生成"""
-    t = text.strip()
-    t = re.sub(r"\s+", "_", t)
-    t = re.sub(r'[\\/:*?"<>|]+', "_", t)
-    t = re.sub(r"[\x00-\x1f]+", "_", t)
-    t = t[:maxlen] if t else "text"
-    h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
-    return f"{t}_{h}"
+    """日時ベースのファイル名を生成"""
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
 
 def load_ng_words_config() -> dict:
     """ngwords.json を探して読み込む。"""
