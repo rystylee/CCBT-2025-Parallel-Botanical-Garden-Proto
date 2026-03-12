@@ -150,6 +150,7 @@ class BIController:
             await self._stop_waiting_loop()
             await self._stop_pulse()
             await self._led_fade(self._current_led_brightness, 0.0)
+            self.input_buffer.clear()
             self.state = "RESTING"
 
     async def _output_phase(self):
