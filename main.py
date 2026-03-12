@@ -6,7 +6,8 @@ from loguru import logger
 
 from app import AppController
 from bi import BIController
-#from pca9685_osc_led_server_v2 import start_led_server
+
+# from pca9685_osc_led_server_v2 import start_led_server
 from pca9685_osc_led_server_v2 import start_led_server
 from utils import load_network_config
 
@@ -36,16 +37,26 @@ def resolve_lang_from_device_id(device_id: int) -> str:
     """
     last_digit = device_id % 10
     mapping = {
+        # 1: "ja",
+        # 2: "ja",
+        # 3: "en",
+        # 4: "en",
+        # 5: "fr",
+        # 6: "fr",
+        # 7: "fa",
+        # 8: "fa",
+        # 9: "ar",
+        # 0: "ar",
         1: "ja",
         2: "ja",
-        3: "en",
-        4: "en",
-        5: "fr",
-        6: "fr",
-        7: "fa",
-        8: "fa",
-        9: "ar",
-        0: "ar",
+        3: "ja",
+        4: "ja",
+        5: "ja",
+        6: "ja",
+        7: "ja",
+        8: "ja",
+        9: "ja",
+        0: "ja",
     }
     return mapping[last_digit]
 
