@@ -13,7 +13,7 @@ from api.tts import StackFlowTTSClient
 from .models import BIInputData
 from .utils import P, override_soft_prefix_val
 
-# from api.utils import cleanup_ng_words
+from api.utils import cleanup_ng_words
 
 
 class BIController:
