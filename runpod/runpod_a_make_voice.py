@@ -149,9 +149,10 @@ def cleanup_ng_words(text: str) -> str:
     """ngwords.json に基づいてテキストをクリーンアップする。"""
     data = load_ng_words_config()
 
+    # 0) 改行フラット化
     text = text.replace("\\n", "\n").replace("\r", "")
 
-    # drop_line_patterns
+    # 1) drop_line_patterns: マッチ行を丸ごと除去
     drop_patterns = data.get("drop_line_patterns", [])
     if drop_patterns:
         lines = text.splitlines()
@@ -165,23 +166,29 @@ def cleanup_ng_words(text: str) -> str:
             kept.append(stripped)
         text = "".join(kept)
 
-    # preamble_keywords
-    for kw in data.get("preamble_keywords", []):
-        if text.startswith(kw):
-            text = text[len(kw):]
+    # 2) preamble_keywords: 先頭の定型句を繰り返し除去
+    preamble_kw = data.get("preamble_keywords", [])
+    changed = True
+    while changed:
+        changed = False
+        for kw in preamble_kw:
+            if text.startswith(kw):
+                text = text[len(kw):]
+                changed = True
 
-    # strip_prefixes
+    # 3) strip_prefixes: 先頭プレフィックスを正規表現で除去
     for pat in data.get("strip_prefixes", []):
         text = re.sub(r"^" + pat, "", text)
 
-    # strip_symbols
+    # 4) strip_symbols: Markdown残骸などを全体から除去
     for sym in data.get("strip_symbols", []):
         text = text.replace(sym, "")
 
-    # strip_punctuation
+    # 5) strip_punctuation: 句読点除去
     for p in data.get("strip_punctuation", []):
         text = text.replace(p, "")
 
+    # 6) 空白正規化
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
