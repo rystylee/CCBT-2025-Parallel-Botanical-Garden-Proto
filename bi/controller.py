@@ -136,13 +136,13 @@ class BIController:
                 soft_prefix_b64=sp_b64,
                 soft_prefix_len=P,
             )
-            # cleaned = cleanup_ng_words(generated_text)
-            # self.generated_text = cleaned
-            # self.tts_text = cleaned
-            self.generated_text = generated_text.strip()
-            self.tts_text = generated_text.strip()
+            cleaned = cleanup_ng_words(generated_text)
+            self.generated_text = cleaned
+            self.tts_text = cleaned
+            # self.generated_text = generated_text.strip()
+            # self.tts_text = generated_text.strip()
             logger.info(f"Generated text: {generated_text.strip()}")
-            # logger.info(f"Cleaned text: {self.tts_text}")
+            logger.info(f"Cleaned text: {self.tts_text}")
 
             # Keep pulse running — it will continue during WAV preparation in OUTPUT phase
             self.state = "OUTPUT"
