@@ -51,6 +51,22 @@ def cleanup_ng_words(text: str) -> str:
             kept.append(stripped)
         text = "".join(kept)
 
+    # 1.5) meta_instruction_patterns: メタ指示/質問文を含むフレーズを除去
+    meta_patterns = data.get("meta_instruction_patterns", [])
+    if meta_patterns and text:
+        # 句点・疑問符で文を分割し、メタ指示パターンを含む文を除去
+        # (句読点除去(step 5)の前に実行する必要がある)
+        sentences = re.split(r"(?<=[。？！\?!])", text)
+        kept_sentences = []
+        for sent in sentences:
+            s = sent.strip()
+            if not s:
+                continue
+            if any(re.search(pat, s) for pat in meta_patterns):
+                continue
+            kept_sentences.append(s)
+        text = "".join(kept_sentences)
+
     # 2) preamble_keywords: 先頭の定型句をスキップ
     preamble_kw = data.get("preamble_keywords", [])
     # 先頭から定型句を含むチャンクを除去（改行なし状態なので先頭マッチ）
