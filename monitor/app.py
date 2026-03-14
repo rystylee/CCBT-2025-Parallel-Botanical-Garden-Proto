@@ -502,6 +502,19 @@ def _run_sequential(action, nums):
         if conf:
             _wait_for_tmux_done(num, conf["session"])
 
+
+def _run_with_delay(action, nums, delay_sec):
+    """ノードを指定秒数の間隔で順番に実行する（バックグラウンドスレッド用）
+    03 SOUND 等の一括テストで1台ずつ確認するために使う。
+    """
+    fn = WORKERS.get(action)
+    if not fn:
+        return
+    for i, num in enumerate(nums):
+        fn(int(num))
+        if i < len(nums) - 1:
+            time.sleep(delay_sec)
+
 def _wait_for_tmux_done(num, session_name):
     """tmuxペインの出力に完了マーカーが現れるまでポーリングで待機する。"""
     deadline = time.time() + SEQUENTIAL_WAIT_SEC
@@ -540,9 +553,13 @@ def api_run():
         cat = _ACTION_CATEGORY.get(action)
         if cat:
             bi_logger.log_batch(cat, action, len(nums))
+    delay_sec = d.get("delay_sec", 0)
     if action in SEQUENTIAL_ACTIONS and len(nums) > 1:
         # 順次実行：1台完了してから次の1台へ
         threading.Thread(target=_run_sequential, args=(action, nums), daemon=True).start()
+    elif delay_sec and delay_sec > 0 and len(nums) > 1:
+        # 指定秒間隔で順次実行（SOUND 一括テスト等）
+        threading.Thread(target=_run_with_delay, args=(action, nums, float(delay_sec)), daemon=True).start()
     else:
         for num in nums:
             run_worker(action, int(num))
@@ -598,6 +615,56 @@ def api_send_test():
     except Exception as e:
         bi_logger.log_run_test_input(num, text, False, "", str(e))
         return jsonify({"ok": False, "stdout": "", "stderr": str(e)})
+
+
+@app.route("/api/send_test_batch", methods=["POST"])
+def api_send_test_batch():
+    """複数ノードに一括でテスト OSC を送信する。
+    nums: ノード番号リスト, text: 送信テキスト, delay_sec: ノード間の遅延（秒）
+    結果は SocketIO で逐次返す。
+    """
+    d = request.json
+    nums = d.get("nums", [])
+    text = d.get("text", "")
+    delay_sec = float(d.get("delay_sec", 0))
+    sid = request.sid if hasattr(request, 'sid') else None
+
+    if not nums or not text:
+        return jsonify({"ok": False, "error": "nums and text required"})
+
+    def _send_batch():
+        results = []
+        for i, num in enumerate(nums):
+            num = int(num)
+            entry = {"num": num, "ok": False, "stdout": "", "stderr": ""}
+            try:
+                r = subprocess.run(
+                    ["python3", SEND_SCRIPT, "-H", node_ip(num), "-t", text],
+                    capture_output=True, text=True, timeout=15,
+                )
+                entry["ok"] = r.returncode == 0
+                entry["stdout"] = r.stdout.strip()
+                entry["stderr"] = r.stderr.strip()
+                bi_logger.log_run_test_input(num, text, entry["ok"], entry["stdout"], entry["stderr"])
+            except subprocess.TimeoutExpired:
+                entry["stderr"] = "timeout"
+                bi_logger.log_run_test_input(num, text, False, "", "timeout")
+            except Exception as e:
+                entry["stderr"] = str(e)
+                bi_logger.log_run_test_input(num, text, False, "", str(e))
+            results.append(entry)
+            # SocketIO で逐次通知（接続がある場合）
+            socketio.emit("send_test_progress", entry)
+            if delay_sec > 0 and i < len(nums) - 1:
+                time.sleep(delay_sec)
+        socketio.emit("send_test_done", {
+            "total": len(nums),
+            "success": sum(1 for r in results if r["ok"]),
+            "failed": sum(1 for r in results if not r["ok"]),
+        })
+
+    threading.Thread(target=_send_batch, daemon=True).start()
+    return jsonify({"ok": True, "total": len(nums)})
 
 
 @app.route("/api/debug_scrape/<int:num>")
@@ -1022,13 +1089,96 @@ def make_tmux_html(page_id, title, subtitle, action_prefix, show_test=False):
     if show_test:
         test_panel = f"""
 <div class="test-panel">
-  <label>SEND TEST:</label><label>NODE</label>
-  <input type="number" id="testNum" value="1" min="1" max="100">
-  <input type="text" id="testText" placeholder="テキストを入力... (例: 森林の奥深くには)" value="森林の奥深くには">
-  <button class="btn b2" onclick="sendTest()">SEND</button>
+  <label>SEND TEST:</label>
+  <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:300px;">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <label style="font-size:.62rem;color:var(--dim);white-space:nowrap;">MODE</label>
+      <select id="testMode" onchange="onTestModeChange()" style="background:#0a0a0f;border:1px solid var(--border);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.68rem;padding:4px 6px;">
+        <option value="single">単体ノード</option>
+        <option value="nums">番号指定 (1,2,3 or 1-10)</option>
+        <option value="digit">一桁目指定 (01,11,21...)</option>
+        <option value="selected">選択ノード</option>
+        <option value="all">全ノード (100)</option>
+      </select>
+      <input type="number" id="testNum" value="1" min="1" max="100" style="width:60px;display:inline;">
+      <input type="text" id="testNums" placeholder="例: 1,2,3 or 1-10,15" style="width:180px;display:none;">
+      <select id="testDigit" style="display:none;background:#0a0a0f;border:1px solid var(--border);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.68rem;padding:4px 6px;">
+        <option value="1">*1 (1,11,21,...91)</option>
+        <option value="2">*2 (2,12,22,...92)</option>
+        <option value="3">*3 (3,13,23,...93)</option>
+        <option value="4">*4 (4,14,24,...94)</option>
+        <option value="5">*5 (5,15,25,...95)</option>
+        <option value="6">*6 (6,16,26,...96)</option>
+        <option value="7">*7 (7,17,27,...97)</option>
+        <option value="8">*8 (8,18,28,...98)</option>
+        <option value="9">*9 (9,19,29,...99)</option>
+        <option value="0">*0 (10,20,30,...100)</option>
+      </select>
+      <label style="font-size:.62rem;color:var(--dim);display:flex;align-items:center;gap:3px;" id="testDelayWrap" title="ノード間の送信間隔">
+        DELAY <select id="testDelay" style="background:#0a0a0f;border:1px solid var(--border);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.6rem;padding:2px 4px;">
+          <option value="0">0s</option><option value="1">1s</option><option value="2">2s</option><option value="3" selected>3s</option><option value="5">5s</option><option value="10">10s</option>
+        </select>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="testText" placeholder="テキストを入力... (例: 森林の奥深くには)" value="森林の奥深くには" style="flex:1;min-width:200px;">
+      <button class="btn b2" onclick="sendTest()">SEND</button>
+      <button class="btn bp" id="batchSendBtn" onclick="sendTestBatch()" style="display:none;">BATCH SEND</button>
+      <span id="testTargetInfo" style="font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--dim);white-space:nowrap;"></span>
+    </div>
+  </div>
 </div>
-<div class="test-result" id="testResult"></div>"""
+<div class="test-result" id="testResult"></div>
+<div id="batchResults" style="margin:0 20px;font-family:'Share Tech Mono',monospace;font-size:.55rem;max-height:200px;overflow-y:auto;display:none;border:1px solid var(--border);background:#08080e;padding:8px;"></div>"""
         test_js = """
+function onTestModeChange(){
+  const m=document.getElementById('testMode').value;
+  document.getElementById('testNum').style.display=m==='single'?'':'none';
+  document.getElementById('testNums').style.display=m==='nums'?'':'none';
+  document.getElementById('testDigit').style.display=m==='digit'?'':'none';
+  const isBatch=(m!=='single');
+  document.getElementById('batchSendBtn').style.display=isBatch?'':'none';
+  document.querySelector('[onclick=\"sendTest()\"]').style.display=isBatch?'none':'';
+  updateTargetInfo();
+}
+function getTestTargets(){
+  const m=document.getElementById('testMode').value;
+  if(m==='single') return [parseInt(document.getElementById('testNum').value)];
+  if(m==='nums') return parseNodeRange(document.getElementById('testNums').value);
+  if(m==='digit'){
+    const d=parseInt(document.getElementById('testDigit').value);
+    const nums=[];
+    for(let i=1;i<=100;i++){if(i%10===d)nums.push(i);}
+    return nums;
+  }
+  if(m==='selected') return sel.size>0?Array.from(sel).sort((a,b)=>a-b):[];
+  if(m==='all') return Array.from({length:100},(_,i)=>i+1);
+  return [];
+}
+function parseNodeRange(s){
+  const ids=[];
+  for(const p of s.split(',')){
+    const t=p.trim();
+    if(t.includes('-')){const[a,b]=t.split('-').map(Number);for(let i=a;i<=b;i++)if(i>=1&&i<=100)ids.push(i);}
+    else if(t){const n=Number(t);if(n>=1&&n<=100)ids.push(n);}
+  }
+  return [...new Set(ids)].sort((a,b)=>a-b);
+}
+function updateTargetInfo(){
+  const t=getTestTargets();
+  const el=document.getElementById('testTargetInfo');
+  if(t.length===0) el.textContent='(対象なし)';
+  else if(t.length<=10) el.textContent=t.length+'台: '+t.join(',');
+  else el.textContent=t.length+'台: '+t.slice(0,5).join(',')+' ... '+t.slice(-3).join(',');
+}
+document.getElementById('testMode').addEventListener('change',updateTargetInfo);
+document.getElementById('testNums').addEventListener('input',updateTargetInfo);
+document.getElementById('testDigit').addEventListener('change',updateTargetInfo);
+// 選択変更時にも更新
+const _origToggleSel=toggleSel;
+toggleSel=function(n){_origToggleSel(n);updateTargetInfo();};
+onTestModeChange();
+
 async function sendTest(){
   const num=document.getElementById('testNum').value;
   const text=document.getElementById('testText').value;
@@ -1040,6 +1190,42 @@ async function sendTest(){
     if(d.ok){el.className='test-result ok';el.textContent='NODE '+num+': OK '+d.stdout;}
     else{el.className='test-result err';el.textContent='NODE '+num+': ERR '+(d.stderr||d.stdout);}
   }catch(e){el.className='test-result err';el.textContent='Error: '+e;}
+}
+async function sendTestBatch(){
+  const nums=getTestTargets();
+  if(!nums.length){alert('対象ノードがありません');return;}
+  const text=document.getElementById('testText').value;
+  if(!text){alert('テキストを入力してください');return;}
+  const delay=parseFloat(document.getElementById('testDelay').value)||0;
+  const el=document.getElementById('testResult');
+  const br=document.getElementById('batchResults');
+  el.className='test-result';el.textContent='BATCH: '+nums.length+'台に送信中...';
+  br.style.display='block';br.innerHTML='';
+  try{
+    const r=await fetch('/api/send_test_batch',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nums,text,delay_sec:delay})});
+    const d=await r.json();
+    if(d.ok) el.textContent='BATCH: 送信開始 ('+d.total+'台, delay='+delay+'s)';
+    else{el.className='test-result err';el.textContent='Error: '+(d.error||'unknown');}
+  }catch(e){el.className='test-result err';el.textContent='Error: '+e;}
+}
+// SocketIO で逐次結果を受信
+if(typeof io!=='undefined'){
+  const _bsock=io();
+  _bsock.on('send_test_progress',function(d){
+    const br=document.getElementById('batchResults');
+    if(!br)return;
+    const line=document.createElement('div');
+    line.style.color=d.ok?'var(--ok)':'var(--ng)';
+    line.textContent='NODE '+d.num+': '+(d.ok?'OK ':'ERR ')+(d.ok?d.stdout:d.stderr);
+    br.appendChild(line);
+    br.scrollTop=br.scrollHeight;
+  });
+  _bsock.on('send_test_done',function(d){
+    const el=document.getElementById('testResult');
+    el.className='test-result '+(d.failed===0?'ok':'err');
+    el.textContent='BATCH完了: '+d.success+' ok / '+d.failed+' failed / '+d.total+' total';
+  });
 }"""
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -1047,11 +1233,12 @@ async function sendTest(){
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>BI MONITOR — {title}</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500;700&display=swap" rel="stylesheet">
+{'<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>' if show_test else ''}
 <style>
 {SHARED_CSS}
 .test-panel{{
   margin:0 20px 10px;padding:12px 16px;border:1px solid var(--border);background:var(--panel);
-  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;
 }}
 .test-panel label{{font-family:'Share Tech Mono',monospace;font-size:.7rem;color:var(--a2);}}
 .test-panel input[type=number]{{
@@ -1062,7 +1249,11 @@ async function sendTest(){
   flex:1;min-width:200px;padding:5px 10px;background:#0a0a0f;border:1px solid var(--border);
   color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.72rem;
 }}
-.test-panel input:focus{{outline:none;border-color:var(--a2);}}
+.test-panel select{{
+  background:#0a0a0f;border:1px solid var(--border);
+  color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.68rem;padding:4px 6px;
+}}
+.test-panel input:focus,.test-panel select:focus{{outline:none;border-color:var(--a2);}}
 .test-result{{
   font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--dim);
   margin:0 20px 6px;padding:4px 10px;
@@ -1250,16 +1441,32 @@ PAGES_HTML = {
     """),
     "sound": make_html("sound", "SOUND CHECK",
             "\u30b5\u30a6\u30f3\u30c9\u30c1\u30a7\u30c3\u30af \u2014 tinyplay",
-            '<button class="btn bp" onclick="runNums(\'sound\',getSelNums())">&#9654; PLAY</button>'
+            '<button class="btn bp" onclick="runNums(\'sound\',getSelNums())">&#9654; PLAY ALL</button>'
+            '<button class="btn bp" onclick="playSeq()" title="指定間隔で順番に再生">&#9654; PLAY SEQ</button>'
+            '<label style="font-family:\'Share Tech Mono\',monospace;font-size:.62rem;color:var(--dim);display:flex;align-items:center;gap:4px;">DELAY'
+            '<select id="delaySec" style="background:#0a0a0f;border:1px solid var(--border);color:var(--text);font-family:\'Share Tech Mono\',monospace;font-size:.62rem;padding:3px 4px;">'
+            '<option value="3">3s</option><option value="5" selected>5s</option><option value="8">8s</option><option value="10">10s</option><option value="15">15s</option><option value="20">20s</option><option value="30">30s</option>'
+            '</select></label>'
             '<button class="btn b2" onclick="selAll()">SELECT ALL</button>'
             '<button class="btn" onclick="clearSel()">CLEAR</button>'
             '<button class="btn bd" onclick="resetNums(getSelNums())">RESET</button>'
             '<span class="btn" id="selCount" style="cursor:default;border-color:var(--accent);color:var(--accent);font-size:.6rem">all</span>',
-            '[["sound","","PLAY"],["sel","c2","SEL"],["reset","","RST"]]',
+            '[["sound","","PLAY"],["soundseq","c2","SEQ"],["sel","c2","SEL"],["reset","","RST"]]',
             """
+    async function playSeq(){
+      const nums=getSelNums();
+      const delay=parseFloat(document.getElementById('delaySec').value)||5;
+      await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'sound',page:PAGE,nums,delay_sec:delay})});
+    }
     async function cAct(ci,a){
       if(a==='reset')await resetNums(clNums(ci));
       else if(a==='sel')selCluster(ci);
+      else if(a==='soundseq'){
+        const delay=parseFloat(document.getElementById('delaySec').value)||5;
+        await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'sound',page:PAGE,nums:clNums(ci),delay_sec:delay})});
+      }
       else await runNums('sound',clNums(ci));
     }
     """),
