@@ -51,7 +51,7 @@ def resolve_lang_from_device_id(device_id: int) -> str:
         2: "ja",
         3: "fr",
         4: "ja",
-        5: "fa",
+        5: "fr",
         6: "ja",
         7: "ar",
         8: "ja",
