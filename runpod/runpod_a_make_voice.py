@@ -84,7 +84,7 @@ FAILED_DIR: Path
 
 POLL_SEC        = float(os.getenv("POLL_SEC", "0.2"))
 BATCH_MODE      = os.getenv("BATCH_MODE", "1") == "1"
-MAX_TEXT_CHARS   = int(os.getenv("MAX_TEXT_CHARS", "500"))
+MAX_TEXT_CHARS   = int(os.getenv("MAX_TEXT_CHARS", "3000"))
 
 
 # ===== ユーティリティ =====
