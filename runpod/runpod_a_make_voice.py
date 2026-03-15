@@ -82,8 +82,9 @@ MELO_BIN: Path
 PROCESSED_DIR: Path
 FAILED_DIR: Path
 
-POLL_SEC   = float(os.getenv("POLL_SEC", "0.2"))
-BATCH_MODE = os.getenv("BATCH_MODE", "1") == "1"
+POLL_SEC        = float(os.getenv("POLL_SEC", "0.2"))
+BATCH_MODE      = os.getenv("BATCH_MODE", "1") == "1"
+MAX_TEXT_CHARS   = int(os.getenv("MAX_TEXT_CHARS", "500"))
 
 
 # ===== ユーティリティ =====
@@ -282,6 +283,7 @@ def process_batch(json_paths: list[Path]):
     texts: list[str] = []
     ok_paths: list[Path] = []
     bad_paths: list[Path] = []
+    total_chars = 0
 
     for jp in stable_paths:
         try:
@@ -289,8 +291,13 @@ def process_batch(json_paths: list[Path]):
             t = extract_text(payload)
             if not t:
                 raise ValueError("空テキスト")
+            # 文字数上限: 超えたらここまでで処理し、残りは次回ポーリングへ
+            if total_chars + len(t) > MAX_TEXT_CHARS and texts:
+                log(f"[RunPod] バッチ上限到達: {total_chars}文字 (MAX={MAX_TEXT_CHARS}), 残り{len(stable_paths) - len(ok_paths) - len(bad_paths)}件は次回")
+                break
             texts.append(t)
             ok_paths.append(jp)
+            total_chars += len(t)
         except Exception as e:
             log(f"❌ JSON解析失敗: {jp.name} → {e}")
             bad_paths.append(jp)
@@ -433,6 +440,7 @@ def main():
     log(f"  MeloTTS:   {MELO_BIN}")
     log(f"  推論:      {INFER_SCRIPT}")
     log(f"  モード:    {'バッチ' if BATCH_MODE else '1件ずつ'}")
+    log(f"  バッチ上限: {MAX_TEXT_CHARS}文字")
     log(f"  ポーリング: {POLL_SEC}s")
     log("=" * 50)
 
