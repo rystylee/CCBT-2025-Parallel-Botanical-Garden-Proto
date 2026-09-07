@@ -22,7 +22,7 @@ def load_server():
     stubs["pythonosc.dispatcher"].Dispatcher = object
     stubs["pythonosc.osc_server"].ThreadingOSCUDPServer = object
     spec = importlib.util.spec_from_file_location(
-        "_led_server_under_test", Path(__file__).resolve().parent.parent / "pca9685_osc_led_server_v2.py"
+        "_led_server_under_test", Path(__file__).resolve().parent.parent / "pca9685_osc_led_server_v3.py"
     )
     module = importlib.util.module_from_spec(spec)
     with patch.dict(sys.modules, {**stubs, spec.name: module}):
@@ -109,7 +109,7 @@ class ServerTests(unittest.TestCase):
             stack.enter_context(redirect_stdout(io.StringIO()))
             with self.assertRaises(EndSimulation):
                 if mode == "cli":
-                    argv = ["pca9685_osc_led_server.py"]
+                    argv = ["pca9685_osc_led_server_v3.py"]
                     for key, value in settings.items():
                         flag = "max" if key == "max_brightness" else key.replace("_", "-")
                         argv.extend(["--" + flag, str(value)])
@@ -117,7 +117,8 @@ class ServerTests(unittest.TestCase):
                     led.main()
                 else:
                     led.start_led_server({"led_control": {
-                        "enabled": True, "pca9685": settings,
+                        "enabled": True, "pca9685_v3": settings,
+                        "pca9685": {"gamma": 1.0, "led_timeout": 1.0, "external_timeout": 1.0},
                     }})
                     threads[-1].target()
         return writes
@@ -241,7 +242,7 @@ class ServerTests(unittest.TestCase):
                     with patch.object(led, "PCA9685Manager") as pwm:
                         with self.assertRaises(ValueError):
                             led.start_led_server({"led_control": {
-                                "enabled": True, "pca9685": {key: value},
+                                "enabled": True, "pca9685_v3": {key: value},
                             }})
                         with patch.object(sys, "argv", [
                             "server", "--" + key.replace("_", "-"), str(value),

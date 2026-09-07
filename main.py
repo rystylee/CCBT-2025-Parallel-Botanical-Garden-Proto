@@ -8,7 +8,7 @@ from app import AppController
 from bi import BIController
 
 # from pca9685_osc_led_server_v2 import start_led_server
-from pca9685_osc_led_server_v2 import start_led_server
+from pca9685_osc_led_server_v3 import start_led_server
 from utils import load_network_config
 
 DEVICE_ID_FILE = "/etc/ccbt-device-id"

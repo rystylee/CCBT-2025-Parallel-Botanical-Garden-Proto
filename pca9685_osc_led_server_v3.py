@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# python3 pca9685_osc_led_server.py --port 9000
+# python3 pca9685_osc_led_server_v3.py --port 9000
 
 # sudo apt-get update
 # sudo apt-get install -y python3-pip i2c-tools
@@ -7,6 +7,7 @@
 
 import argparse
 import glob
+import math
 import signal
 import sys
 import threading
@@ -31,6 +32,10 @@ AI      = 1 << 5  # Auto-Increment
 
 # MODE2 bits
 OUTDRV  = 1 << 2  # Totem-pole output driver
+
+DEFAULT_GAMMA = 2.2
+DEFAULT_LED_RATIO = 1.0
+DEFAULT_INPUT_TIMEOUT = 180.0
 
 
 def clamp(x, lo, hi):
@@ -88,6 +93,60 @@ def mix_duty(bri: float, bri_ex: float, led_ratio: float) -> float:
     bri_ex = clamp(float(bri_ex), 0.0, 1.0)
     led_ratio = clamp(float(led_ratio), 0.0, 1.0)
     return clamp((led_ratio * bri) + ((1.0 - led_ratio) * bri_ex), 0.0, 1.0)
+
+
+def positive_finite(value, name: str) -> float:
+    value = float(value)
+    if not math.isfinite(value) or value <= 0.0:
+        raise ValueError(f"{name} must be finite and greater than 0")
+    return value
+
+
+def gamma_correct(duty: float, gamma: float, max_bri: float) -> float:
+    """Keep the existing input cap and also cap the actual PWM after gamma."""
+    duty = min(clamp(duty, 0.0, 1.0), max_bri)
+    return min(duty ** gamma, max_bri)
+
+
+class OSCInputWatchdog:
+    """Independent input deadlines. Call all methods under the state lock.
+
+    Only valid /led values renew the LED deadline. Valid /bri_ex and
+    /led_ratio values (including aliases) renew the external deadline.
+    /led/on, /led/off and /led/toggle do not renew either deadline.
+    """
+
+    def __init__(self, led_timeout=DEFAULT_INPUT_TIMEOUT,
+                 external_timeout=DEFAULT_INPUT_TIMEOUT):
+        self.led_timeout = positive_finite(led_timeout, "led_timeout")
+        self.external_timeout = positive_finite(external_timeout, "external_timeout")
+        self.last_led = self.last_external = time.monotonic()
+        self.led_expired = False
+        self.external_expired = False
+
+    def note_led(self):
+        self.last_led = time.monotonic()
+        self.led_expired = False
+
+    def note_external(self):
+        self.last_external = time.monotonic()
+        self.external_expired = False
+
+    def expire(self, target, current):
+        now = time.monotonic()
+        messages = []
+        if now - self.last_led >= self.led_timeout:
+            target["bri"] = 0.0
+            current["bri"] = 0.0  # Safety timeout bypasses the normal fade.
+            if not self.led_expired:
+                messages.append("[WARN] /led timed out; bri forced to 0")
+                self.led_expired = True
+        if now - self.last_external >= self.external_timeout:
+            target["led_ratio"] = DEFAULT_LED_RATIO
+            if not self.external_expired:
+                messages.append("[WARN] External OSC timed out; led_ratio reset to 1.0")
+                self.external_expired = True
+        return messages
 
 
 @dataclass
@@ -258,7 +317,8 @@ def main():
                     help="固定I2Cバス番号（例: 1）。未指定なら /dev/i2c-* をスキャン")
     ap.add_argument("--freq", type=float, default=1000.0, help="PWM frequency Hz (default 1000)")
     ap.add_argument("--osc", type=float, default=25_000_000.0, help="PCA9685 oscillator Hz (default 25MHz)")
-    ap.add_argument("--gamma", type=float, default=1.0, help="Gamma correction (1.0=linear, 2.2=perceptual)")
+    ap.add_argument("--gamma", type=float, default=DEFAULT_GAMMA,
+                    help="Gamma correction (default 2.2; 1.0=linear)")
     ap.add_argument("--max", dest="max_bri", type=float, default=1.0,
                     help="Safety max brightness (0.0..1.0). Default 1.0")
     ap.add_argument("--fade", type=float, default=0.0,
@@ -269,12 +329,21 @@ def main():
                     help="Seconds between reconnect attempts when disconnected (default 2.0)")
     ap.add_argument("--log-interval", type=float, default=5.0,
                     help="Throttle repeated identical logs in seconds (default 5.0)")
+    ap.add_argument("--led-timeout", type=float, default=DEFAULT_INPUT_TIMEOUT,
+                    help="Seconds without valid /led before forcing bri to 0 (default 180)")
+    ap.add_argument("--external-timeout", type=float, default=DEFAULT_INPUT_TIMEOUT,
+                    help="Seconds without valid /bri_ex or /led_ratio before resetting ratio to 1 (default 180)")
     args = ap.parse_args()
 
     if not (0 <= args.ch <= 15):
         raise SystemExit("--ch must be 0..15")
     if not (0.0 <= args.max_bri <= 1.0):
         raise SystemExit("--max must be in 0.0..1.0")
+    try:
+        args.gamma = positive_finite(args.gamma, "--gamma")
+        watchdog = OSCInputWatchdog(args.led_timeout, args.external_timeout)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
 
     cfg = PCA9685Config(
         addr=args.addr,
@@ -313,12 +382,7 @@ def main():
         return list_i2c_buses()
 
     def apply_output(duty_0_1: float) -> bool:
-        """
-        Apply max clamp + gamma, then write to PCA9685 if connected.
-        """
-        duty_0_1 = clamp(duty_0_1, 0.0, 1.0)
-        duty_0_1 = min(duty_0_1, max_bri)
-        out = (duty_0_1 ** args.gamma) if args.gamma != 1.0 else duty_0_1
+        out = gamma_correct(duty_0_1, args.gamma, max_bri)
         return pwm.set_duty(out)
 
     # ===== OSC handlers =====
@@ -340,6 +404,7 @@ def main():
 
         with state_lock:
             target["bri"] = bri
+            watchdog.note_led()
             if bri > 0.0:
                 last_nonzero["bri"] = bri
 
@@ -355,6 +420,7 @@ def main():
 
         with state_lock:
             target["bri_ex"] = bri_ex
+            watchdog.note_external()
             if bri_ex > 0.0:
                 last_nonzero["bri_ex"] = bri_ex
 
@@ -368,6 +434,7 @@ def main():
 
         with state_lock:
             target["led_ratio"] = led_ratio
+            watchdog.note_external()
 
     def osc_on(address, *osc_args):
         with state_lock:
@@ -411,6 +478,7 @@ def main():
     print("[INFO] OSC -> PCA9685 server (auto-reconnect, bri/bri_ex/led_ratio=0.0..1.0 only)")
     print(f"[INFO] OSC listen: udp://{args.listen}:{args.port}")
     print(f"[INFO] PCA9685 addr=0x{args.addr:02X} ch={args.ch} freq={args.freq}Hz gamma={args.gamma} max={max_bri:.3f}")
+    print(f"[INFO] Input timeouts: /led={watchdog.led_timeout:g}s external={watchdog.external_timeout:g}s")
     print("[INFO] OSC commands:")
     print("  /led <float 0.0..1.0>")
     print("  /bri_ex <float 0.0..1.0>")
@@ -471,10 +539,14 @@ def main():
 
             # Fade loop
             with state_lock:
+                timeout_messages = watchdog.expire(target, current)
                 t = target["bri"]
                 c = current["bri"]
                 bri_ex = target["bri_ex"]
                 led_ratio = target["led_ratio"]
+
+            for message in timeout_messages:
+                log_throttled(message)
 
             if args.fade <= 0.0:
                 c_new = t
@@ -524,8 +596,9 @@ def start_led_server(config: dict) -> None:
     """
     Start PCA9685 LED server as a daemon thread using config dict.
 
-    Reads settings from config["led_control"] and starts the OSC server
-    and I2C control loop in background threads.
+    Reads hardware/output settings from config["led_control"]["pca9685_v3"].
+    Shared enabled/targets settings come from config["led_control"].
+    Starts the OSC server and I2C control loop in background threads.
 
     Args:
         config: Application config dict with "led_control" section
@@ -537,7 +610,7 @@ def start_led_server(config: dict) -> None:
         return
 
     # Extract settings from config (with defaults matching CLI defaults)
-    pca_config = led_config.get("pca9685", {})
+    pca_config = led_config.get("pca9685_v3", {})
     listen_ip = "0.0.0.0"
     port = led_config.get("targets", [{}])[0].get("port", 9000)
     addr = pca_config.get("addr", 0x40)
@@ -545,12 +618,18 @@ def start_led_server(config: dict) -> None:
     bus = pca_config.get("bus", None)
     freq = pca_config.get("freq", 1000.0)
     osc_hz = pca_config.get("osc_hz", 25_000_000.0)
-    gamma = pca_config.get("gamma", 1.0)
-    max_bri = pca_config.get("max_brightness", 1.0)
+    gamma = positive_finite(pca_config.get("gamma", DEFAULT_GAMMA), "gamma")
+    max_bri = float(pca_config.get("max_brightness", 1.0))
+    if not (0.0 <= max_bri <= 1.0):
+        raise ValueError("max_brightness must be in 0.0..1.0")
     fade = pca_config.get("fade", 0.0)
     rate = pca_config.get("rate", 100.0)
     reconnect_interval = pca_config.get("reconnect_interval", 2.0)
     log_interval = pca_config.get("log_interval", 5.0)
+    watchdog = OSCInputWatchdog(
+        pca_config.get("led_timeout", DEFAULT_INPUT_TIMEOUT),
+        pca_config.get("external_timeout", DEFAULT_INPUT_TIMEOUT),
+    )
 
     cfg = PCA9685Config(
         addr=addr,
@@ -586,9 +665,7 @@ def start_led_server(config: dict) -> None:
         return list_i2c_buses()
 
     def apply_output(duty_0_1: float) -> bool:
-        duty_0_1 = clamp(duty_0_1, 0.0, 1.0)
-        duty_0_1 = min(duty_0_1, max_bri)
-        out = (duty_0_1 ** gamma) if gamma != 1.0 else duty_0_1
+        out = gamma_correct(duty_0_1, gamma, max_bri)
         return pwm.set_duty(out)
 
     # OSC handlers
@@ -601,6 +678,7 @@ def start_led_server(config: dict) -> None:
         bri_val = min(bri_val, max_bri)
         with state_lock:
             target["bri"] = bri_val
+            watchdog.note_led()
             if bri_val > 0.0:
                 last_nonzero["bri"] = bri_val
 
@@ -613,6 +691,7 @@ def start_led_server(config: dict) -> None:
         bri_ex_val = min(bri_ex_val, max_bri)
         with state_lock:
             target["bri_ex"] = bri_ex_val
+            watchdog.note_external()
             if bri_ex_val > 0.0:
                 last_nonzero["bri_ex"] = bri_ex_val
 
@@ -624,6 +703,7 @@ def start_led_server(config: dict) -> None:
             return
         with state_lock:
             target["led_ratio"] = led_ratio_val
+            watchdog.note_external()
 
     def osc_on(address, *osc_args):
         with state_lock:
@@ -701,10 +781,14 @@ def start_led_server(config: dict) -> None:
                 next_reconnect = now + reconnect_interval
 
             with state_lock:
+                timeout_messages = watchdog.expire(target, current)
                 t = target["bri"]
                 c = current["bri"]
                 bri_ex = target["bri_ex"]
                 led_ratio = target["led_ratio"]
+
+            for message in timeout_messages:
+                log_throttled(message)
 
             if fade <= 0.0:
                 c_new = t
@@ -751,6 +835,7 @@ def start_led_server(config: dict) -> None:
     control_thread.start()
 
     print(f"[LED] Started: OSC udp://{listen_ip}:{port} -> PCA9685 addr=0x{addr:02X} ch={channel}")
+    print(f"[LED] gamma={gamma:g} max={max_bri:.3f} /led timeout={watchdog.led_timeout:g}s external timeout={watchdog.external_timeout:g}s")
 
 
 if __name__ == "__main__":
