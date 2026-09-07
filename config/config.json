@@ -210,6 +210,19 @@
       "fade": 0.0,
       "rate": 100.0,
       "reconnect_interval": 2.0
+    },
+    "pca9685_v3": {
+      "addr": 64,
+      "channel": 0,
+      "bus": null,
+      "freq": 1000.0,
+      "gamma": 2.2,
+      "led_timeout": 180.0,
+      "external_timeout": 180.0,
+      "max_brightness": 1.0,
+      "fade": 0.0,
+      "rate": 100.0,
+      "reconnect_interval": 2.0
     }
   },
   "llm_settings": {
